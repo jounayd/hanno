@@ -1,0 +1,28 @@
+# Phase 0 (EXCAVATOR_MIGRATION_PLAN.md): a fixed set of narrow, concrete,
+# known-true claims a competent model should be able to take all the way
+# through the pipeline (formalize -> survive triviality -> resist
+# counterexample -> complete proof). This is the yardstick every later
+# migration phase is measured against: solve-rate and $ cost on this exact
+# set, before and after each change. Run with `hanno benchmark`.
+#
+# Each `claim` is the ENTIRE prompt content the model ever sees for that
+# attempt -- no "explore/generalize" framing of any kind. That framing is
+# precisely what caused the goal-drift failure this benchmark exists to
+# catch a regression on (see hanno/solve/pipeline.py). Keep entries narrow
+# on purpose; do not add "this generalizes to..." context here.
+benchmarks:
+  - name: cube_minus_self_div_6
+    claim: "For every positive integer n, the value n^3 - n is always divisible by 6."
+    difficulty: easy
+  - name: n_squared_plus_n_even
+    claim: "For every positive integer n, the value n^2 + n is always even."
+    difficulty: easy
+  - name: gauss_sum
+    claim: "For every positive integer n, the sum 1 + 2 + ... + n equals n(n+1)/2."
+    difficulty: medium
+  - name: fifth_power_minus_self_div_30
+    claim: "For every integer n, the value n^5 - n is always divisible by 30."
+    difficulty: medium
+  - name: seventh_power_minus_self_div_42
+    claim: "For every integer n, the value n^7 - n is always divisible by 42."
+    difficulty: hard

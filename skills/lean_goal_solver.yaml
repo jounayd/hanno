@@ -1,0 +1,41 @@
+# GENERIC TACTIC-SELECTION ORACLE for Lean proof work. Read-only in effect
+# on Mathlib (only compiles short, disposable scratch files), but DOES
+# execute the real Lean compiler -- not arbitrary model code, no different
+# in kind from the triviality/proof checks Hanno already runs constantly.
+#
+# The generic complement to mathlib_search: that tool grounds NAME lookup
+# (does this lemma/tactic exist); this tool grounds TACTIC SELECTION (does
+# this specific tactic close THIS specific goal), against a real compile
+# instead of a guess. Added after a real observed failure: an attempt used
+# `omega` -- a linear-arithmetic-only decision procedure -- to try to prove
+# `n <= n ^ 17`, a true fact omega structurally cannot reach because it
+# can't reason about exponentiation at all. Rather than hand-enumerating
+# every possible "tactic X can't handle goal shape Y" trap across all of
+# mathematics, this asks Lean's own automation directly and reports the
+# truth, whichever way it comes out.
+name: lean_goal_solver
+description: >
+  For a stuck sub-goal, tries a battery of standard Lean closing tactics
+  (omega, decide, norm_num, simp, positivity, exact?) via REAL compilation
+  and reports which one (if any) actually closes it -- instead of guessing a
+  single tactic and betting a whole proof attempt on it. Input is a complete,
+  STANDALONE Lean theorem statement with every needed hypothesis as an
+  explicit named argument (no proof body needed -- strip or omit any
+  `:= by ...`), e.g. "theorem goal (n : ℕ) (h : 1 ≤ n) : n ≤ n ^ 17". Returns
+  WORKS with the first tactic that closes it (verified by a real compile,
+  cheapest tactics tried first), or an honest report that none of them do --
+  which means this sub-goal needs a real proof strategy (induction, a
+  specific lemma via mathlib_search, or further decomposition), not more
+  guessing at generic automation. Use this whenever you are not confident
+  which tactic closes a small arithmetic/algebraic sub-goal, before
+  committing to one in your actual proof.
+command: ["python3", "skills/scripts/lean_goal_solver.py"]
+input_mode: stdin
+input_description: "A standalone Lean theorem statement (hypotheses as named arguments), no proof body needed."
+# Generous: real Lean subprocess timing varies a lot with system load (each
+# of up to 6 candidate tactics gets its own 20s budget internally, but
+# observed real-world variance means the worst case -- none of them work --
+# can run well past a tight overall timeout even though no single step hung).
+timeout_seconds: 200
+max_output_chars: 2000
+enabled: true

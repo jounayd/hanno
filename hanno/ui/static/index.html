@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hanno — Miner</title>
+<link rel="stylesheet" href="app.css" />
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 40 40" aria-hidden="true">
+        <circle cx="20" cy="20" r="18.5" fill="none" stroke="#D8B24E" stroke-width="1" opacity="0.55"/>
+        <g stroke="#D8B24E" stroke-width="1" opacity="0.8">
+          <line x1="20" y1="20" x2="27" y2="10"/>
+          <line x1="20" y1="20" x2="31" y2="21"/>
+          <line x1="20" y1="20" x2="24" y2="31"/>
+          <line x1="20" y1="20" x2="11" y2="28"/>
+          <line x1="20" y1="20" x2="9" y2="14"/>
+        </g>
+        <circle cx="20" cy="20" r="3.4" fill="#D8B24E"/>
+        <circle cx="27" cy="10" r="1.8" fill="#EDE7D6"/>
+        <circle cx="31" cy="21" r="1.8" fill="#EDE7D6"/>
+        <circle cx="24" cy="31" r="1.8" fill="#EDE7D6"/>
+        <circle cx="11" cy="28" r="1.8" fill="#EDE7D6"/>
+        <circle cx="9" cy="14" r="1.8" fill="#EDE7D6"/>
+      </svg>
+      <div class="brand-text">
+        <h1>Hanno</h1>
+        <p>Miner &middot; Idea Space</p>
+      </div>
+    </div>
+    <div class="seed-pill" id="seed-pill"><span class="dot"></span><span id="seed-pill-text"></span></div>
+    <div class="spacer"></div>
+    <button class="btn ghost" id="btn-fit" title="Fit to screen">Fit</button>
+    <button class="btn ghost" id="btn-theme" title="Toggle theme">Theme</button>
+    <button class="btn primary" id="btn-load">Load trace JSON</button>
+    <input type="file" id="file-input" accept="application/json" />
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="mine">Mine</button>
+    <button class="tab-btn" data-tab="seeds">Seeds</button>
+    <button class="tab-btn" data-tab="settings">Settings</button>
+    <button class="tab-btn" data-tab="skills">Skills</button>
+  </nav>
+
+  <div class="tab-panel active" id="tab-mine">
+    <div class="body" id="body-grid">
+      <aside class="rail">
+        <div>
+          <h2>Seed</h2>
+          <div class="field">
+            <label>Pick an existing seed</label>
+            <select id="seed-select"><option value="">— choose —</option></select>
+          </div>
+          <div class="field">
+            <label>...or paste a seed ID</label>
+            <input type="text" id="seed-id-input" placeholder="00000000-0000-0000-0000-000000000000" />
+          </div>
+        </div>
+
+        <div>
+          <h2>Mining run</h2>
+          <div class="field">
+            <label>Candidates per iteration <b id="candidates-val">5</b></label>
+            <input type="range" id="candidates-input" min="1" max="50" step="1" value="5" />
+          </div>
+          <div class="field">
+            <label>Depth (1 = single cycle) <b id="depth-val">1</b></label>
+            <input type="range" id="depth-input" min="1" max="6" step="1" value="1" />
+          </div>
+          <div class="field">
+            <label>Beam width (top-k) <b id="topk-val">2</b></label>
+            <input type="range" id="topk-input" min="1" max="5" step="1" value="2" />
+          </div>
+          <label class="check-row"><input type="checkbox" id="fresh-input" /> Restart from iteration 1 (--fresh)</label>
+          <button class="btn primary" id="btn-start-mine" style="width:100%; margin-top:10px;">Start Mining</button>
+          <p class="field hint" id="mine-status" style="margin-top:8px;"></p>
+        </div>
+
+        <div id="seed-summary"></div>
+
+        <div>
+          <h2>Overview</h2>
+          <div class="stat-grid" id="stats"></div>
+        </div>
+
+        <div>
+          <h2>Search</h2>
+          <input type="search" id="search" placeholder="Search core claims&hellip;" />
+        </div>
+
+        <div>
+          <h2>Filters</h2>
+          <div class="field">
+            <label>Minimum path score <b id="score-val">0.00</b></label>
+            <input type="range" id="score-filter" min="0" max="1" step="0.01" value="0" />
+          </div>
+          <label class="check-row"><input type="checkbox" id="hide-dupes" /> Dim exact duplicates</label>
+          <label class="check-row"><input type="checkbox" id="hide-dead" /> Dim dead ends</label>
+          <label class="check-row"><input type="checkbox" id="hide-failed" checked /> Dim parse failures</label>
+        </div>
+
+        <div>
+          <h2>Legend</h2>
+          <div class="legend-item"><span class="legend-swatch" style="background:var(--gold-glow)"></span> Higher path score</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:var(--muted)"></span> Lower path score</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:transparent;border:2px solid var(--ink-soft)"></span> Novel</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:transparent;border:2px dashed var(--gold)"></span> Near duplicate</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:transparent;border:2px dashed var(--danger)"></span> Exact duplicate</div>
+          <div class="legend-item"><span class="legend-line" style="border-color:var(--gold)"></span> Refinement lineage</div>
+          <div class="legend-item"><span style="color:var(--focus); font-weight:700;">⚙</span> Skill(s) called during generation</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:transparent;border:3px solid var(--gold)"></span> Lean-checked — pending/unresolved</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:transparent;border:3px solid var(--success)"></span> Lean-checked — PROVEN (complete proof)</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:transparent;border:3px solid var(--danger)"></span> Lean-checked — failed or refuted</div>
+        </div>
+      </aside>
+
+      <main class="stage">
+        <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+          <g id="viewport"></g>
+        </svg>
+
+        <div class="empty" id="empty-state">
+          <svg class="orbit" viewBox="0 0 220 220" aria-hidden="true">
+            <g class="spin">
+              <circle cx="110" cy="110" r="86" fill="none" stroke="var(--line-strong)" stroke-width="1"/>
+              <g stroke="var(--gold)" stroke-width="1" opacity="0.7">
+                <line x1="110" y1="110" x2="160" y2="70"/>
+                <line x1="110" y1="110" x2="185" y2="118"/>
+                <line x1="110" y1="110" x2="150" y2="182"/>
+              </g>
+              <circle class="twinkle" cx="160" cy="70" r="4" fill="var(--gold-glow)"/>
+              <circle class="twinkle" cx="185" cy="118" r="3" fill="var(--gold-glow)" style="animation-delay:0.8s"/>
+              <circle class="twinkle" cx="150" cy="182" r="3.5" fill="var(--gold-glow)" style="animation-delay:1.6s"/>
+            </g>
+            <g class="spin-rev">
+              <g stroke="var(--navy)" stroke-width="1" opacity="0.55">
+                <line x1="110" y1="110" x2="52" y2="140"/>
+                <line x1="110" y1="110" x2="40" y2="88"/>
+                <line x1="110" y1="110" x2="78" y2="42"/>
+              </g>
+              <circle class="twinkle" cx="52" cy="140" r="3" fill="var(--navy)" style="animation-delay:0.4s"/>
+              <circle class="twinkle" cx="40" cy="88" r="2.6" fill="var(--navy)" style="animation-delay:1.2s"/>
+              <circle class="twinkle" cx="78" cy="42" r="3" fill="var(--navy)" style="animation-delay:2s"/>
+            </g>
+            <circle cx="110" cy="110" r="9" fill="var(--navy)" stroke="var(--gold)" stroke-width="2"/>
+          </svg>
+          <h2>Pick a seed and start mining, or load a trace</h2>
+          <p>
+            Choose a seed on the left and click <code>Start Mining</code> to watch it mine live —
+            every candidate becomes a node the moment it's recorded, positioned by iteration and
+            connected along its refinement lineage. Or load an exported
+            <code>hanno trace &lt;SEED_ID&gt; --json trace.json</code> file to review a past run.
+          </p>
+          <div class="dropzone" id="dropzone">Drop <code>trace.json</code> anywhere on this page, or use &ldquo;Load trace JSON&rdquo; above.</div>
+        </div>
+      </main>
+
+      <aside class="detail" id="detail-panel"></aside>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="tab-seeds">
+    <div class="page surface-light">
+      <div class="page-inner">
+        <div class="card">
+          <h2>Add a seed</h2>
+          <p class="sub">A short concept/direction (10–200 words) in one domain. Validated the same way as <code>hanno seeds add</code> — length bounds, domain-keyword presence, and a concept-level duplicate check against everything already stored.</p>
+          <form id="seed-add-form">
+            <div class="field">
+              <label>Seed text</label>
+              <textarea id="seed-text-input" rows="4" placeholder="Investigate whether every finite simple group embeds into a bounded-degree symmetric group..."></textarea>
+            </div>
+            <div class="grid-2">
+              <div class="field">
+                <label>Domain</label>
+                <select id="seed-domain-input">
+                  <option value="mathematics">mathematics</option>
+                  <option value="science">science</option>
+                  <option value="philosophy">philosophy</option>
+                  <option value="cross-domain">cross-domain</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Type</label>
+                <select id="seed-type-input">
+                  <option value="human">human</option>
+                  <option value="ai-generated">ai-generated</option>
+                  <option value="derivative">derivative</option>
+                </select>
+              </div>
+              <div class="field span-2">
+                <label>Submitter (optional)</label>
+                <input type="text" id="seed-submitter-input" placeholder="you" />
+              </div>
+            </div>
+            <div class="save-row">
+              <button type="submit" class="btn primary" id="btn-add-seed">Add seed</button>
+              <span class="save-status" id="seed-add-status"></span>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <h2>Seed queue</h2>
+          <p class="sub">Priority-ordered — same ranking <code>hanno seeds list</code> and the miner's <code>next_for_domain</code> use.</p>
+          <div class="field" style="max-width:260px;">
+            <label>Filter by domain</label>
+            <select id="seed-queue-domain-filter">
+              <option value="">all domains</option>
+              <option value="mathematics">mathematics</option>
+              <option value="science">science</option>
+              <option value="philosophy">philosophy</option>
+              <option value="cross-domain">cross-domain</option>
+            </select>
+          </div>
+          <div id="seed-queue-list"><div class="empty-inline">Loading&hellip;</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="tab-settings">
+    <div class="page surface-light">
+      <div class="page-inner">
+        <div class="card">
+          <h2>API Key</h2>
+          <p class="sub">Stored in <code>data/secrets.local.yaml</code> (gitignored), never in the checked-in config. Only the last 4 characters are ever shown back. Keyed per provider, so switching providers below doesn't lose a previously saved key. Self-hosted servers (e.g. Ollama) typically don't need a key at all — leave this blank.</p>
+          <div class="field">
+            <label id="api-key-label">API key (anthropic)</label>
+            <input type="password" id="api-key-input" placeholder="sk-ant-..." autocomplete="off" />
+          </div>
+          <div class="key-status" id="key-status"><span class="dot"></span><span id="key-status-text">checking…</span></div>
+          <div class="save-row">
+            <button class="btn primary" id="btn-save-key">Save API key</button>
+            <span class="save-status" id="key-save-status"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Miner settings</h2>
+          <p class="sub">Saved to <code>config/local.yaml</code> (gitignored) as an overlay on top of the checked-in <code>config/default.yaml</code> — the documented defaults are never rewritten.</p>
+          <form id="settings-form">
+            <div class="grid-2">
+              <div class="field">
+                <label>Provider</label>
+                <select id="cfg-provider">
+                  <option value="anthropic">anthropic</option>
+                  <option value="openai_compatible">openai_compatible (OpenAI, Ollama, any compatible server)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Base URL (openai_compatible only)</label>
+                <input type="text" id="cfg-base_url" placeholder="http://localhost:11434/v1" />
+              </div>
+              <div class="field">
+                <label>Model</label>
+                <input type="text" id="cfg-model" />
+              </div>
+              <div class="field">
+                <label>Request timeout (seconds)</label>
+                <input type="number" id="cfg-request_timeout_seconds" step="30" min="1" />
+                <p class="sub">Hosted APIs finish well under the 600s default. Self-hosted local models are much slower tok/s -- raise this (e.g. 1800-3600) or long responses get killed mid-generation and logged as a failed candidate.</p>
+              </div>
+              <div class="field">
+                <label>Daily spend limit (USD)</label>
+                <input type="number" id="cfg-daily_spend_limit_usd" step="0.5" min="0" />
+              </div>
+              <div class="field">
+                <label>Candidates per cycle</label>
+                <input type="number" id="cfg-candidates_per_cycle_per_seed" step="1" min="1" />
+              </div>
+              <div class="field">
+                <label>Max tokens per candidate</label>
+                <input type="number" id="cfg-max_tokens_per_candidate" step="500" min="500" />
+              </div>
+              <div class="field span-2">
+                <label>Temperatures (comma-separated, 0.0–1.0)</label>
+                <input type="text" id="cfg-temperatures" placeholder="0.3, 0.6, 0.8, 1.0" />
+              </div>
+              <div class="field">
+                <label>Arm selection strategy</label>
+                <select id="cfg-arm_selection_strategy">
+                  <option value="ucb1">ucb1</option>
+                  <option value="round_robin">round_robin</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>UCB1 exploration constant</label>
+                <input type="number" id="cfg-ucb1_exploration_constant" step="0.1" min="0" />
+              </div>
+              <div class="field span-2">
+                <label>Reasoning efforts (comma-separated)</label>
+                <input type="text" id="cfg-reasoning_efforts" placeholder="standard, deep" />
+              </div>
+              <div class="field">
+                <label>Iteration top-k (beam width)</label>
+                <input type="number" id="cfg-iteration_top_k" step="1" min="1" />
+              </div>
+              <div class="field">
+                <label>Strong path score threshold</label>
+                <input type="number" id="cfg-strong_path_score_threshold" step="0.05" min="0" max="1" />
+              </div>
+              <div class="field">
+                <label>Min iterations for reseed</label>
+                <input type="number" id="cfg-min_iterations_for_reseed" step="1" min="1" />
+              </div>
+              <div class="field">
+                <label>Beam diversity max similarity</label>
+                <input type="number" id="cfg-beam_diversity_max_similarity" step="0.01" min="0" max="1" />
+              </div>
+              <div class="field">
+                <label>Lineage retention threshold</label>
+                <input type="number" id="cfg-iteration_lineage_retention_threshold" step="0.05" min="0" max="1" />
+              </div>
+              <div class="field">
+                <label>Plateau patience (0 disables)</label>
+                <input type="number" id="cfg-iteration_plateau_patience" step="1" min="0" />
+              </div>
+              <div class="field">
+                <label>Max Lean checks per iteration</label>
+                <input type="number" id="cfg-max_lean_checks_per_iteration" step="1" min="1" />
+                <p class="sub">--until-promising: how many of this iteration's eligible candidates get Lean-checked, not just the single top-scoring one -- self-rated score alone isn't a trustworthy enough signal to gate the whole check budget down to one winner.</p>
+              </div>
+              <div class="field span-2">
+                <label class="check-row"><input type="checkbox" id="cfg-iteration_exploration_thread" /> Wildcat exploration thread (mine the original seed fresh each iteration ≥ 2)</label>
+              </div>
+            </div>
+            <div class="save-row">
+              <button type="submit" class="btn primary" id="btn-save-config">Save miner settings</button>
+              <span class="save-status" id="config-save-status"></span>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="tab-skills">
+    <div class="page surface-light">
+      <div class="page-inner">
+        <div class="card">
+          <h2>Skills</h2>
+          <p class="sub">Tools the mining model can call mid-generation. Toggling only flips <code>enabled</code> in that skill's YAML file — everything else (command, timeout, description) stays exactly as authored.</p>
+          <div id="skills-list"><div class="empty-inline">Loading&hellip;</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="reseed-modal" hidden>
+  <div class="modal reseed-modal" role="dialog" aria-modal="true" aria-labelledby="reseed-modal-title">
+    <button type="button" class="detail-close" id="reseed-modal-close" aria-label="Close">&times;</button>
+    <h3 id="reseed-modal-title">Reseed from this candidate</h3>
+
+    <section class="reseed-modal-context">
+      <h4>Context — what this reseed builds on</h4>
+      <div class="chips" id="reseed-modal-chips"></div>
+      <div class="reseed-modal-field">
+        <div class="reseed-modal-field-label">Formal statement</div>
+        <div class="mono-block" id="reseed-modal-formal"></div>
+      </div>
+      <div class="reseed-modal-field">
+        <div class="reseed-modal-field-label">Core claim</div>
+        <p id="reseed-modal-claim"></p>
+      </div>
+    </section>
+
+    <section class="reseed-modal-input">
+      <h4>Your new seed</h4>
+      <div id="reseed-modal-suggestions" class="reseed-suggestions"></div>
+      <label class="reseed-modal-field-label" for="reseed-text">Write the seed text here</label>
+      <textarea id="reseed-text" rows="4" placeholder="New seed text derived from this candidate..."></textarea>
+      <div class="reseed-controls">
+        <select id="reseed-domain">
+          <option value="mathematics">mathematics</option>
+          <option value="science">science</option>
+          <option value="philosophy">philosophy</option>
+          <option value="cross-domain">cross-domain</option>
+        </select>
+        <button class="btn primary" id="reseed-submit">Submit reseed</button>
+      </div>
+      <div id="reseed-status" class="reseed-status"></div>
+    </section>
+  </div>
+</div>
+
+<script src="mindmap.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

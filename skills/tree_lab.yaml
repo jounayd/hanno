@@ -1,0 +1,23 @@
+# Safe search/generation instruments for graceful-labeling mining.
+# Stdlib-only JSON in / JSON out — never evaluates model text as code.
+name: tree_lab
+description: >
+  Instruments for graceful tree labeling research. Input is one JSON object
+  with an "op" field. Operations:
+  (1) {"op": "find_labeling", "edges": [[u,v],...], "budget_ms": 8000} —
+  backtracking search that either FINDS an actual graceful labeling of the
+  given tree (returns it, verified) or reports why not. Use it to obtain real
+  labelings to study for patterns, instead of guessing them by hand.
+  (2) {"op": "random_trees", "n": 10, "count": 20, "seed": 42} — generate
+  random labeled trees via Prüfer sequences. Combine with find_labeling or
+  check_labeling to TEST a claimed construction across many trees in a couple
+  of calls — if you claim "construction C works for family F", generate trees,
+  apply C yourself, and check every one BEFORE finalizing the claim.
+  (3) {"op": "check_labeling", "edges": [...], "labels": {"v": int}} — verify
+  one specific labeling and see the induced edge labels.
+command: ["python3", "skills/scripts/tree_lab.py"]
+input_mode: stdin
+input_description: 'JSON with an "op" field: find_labeling | random_trees | check_labeling (see tool description for shapes)'
+timeout_seconds: 20
+max_output_chars: 4000
+enabled: false

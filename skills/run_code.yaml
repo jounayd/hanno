@@ -1,0 +1,29 @@
+# THE GENERIC TOOL — DISABLED BY DEFAULT. Read before enabling.
+#
+# run_code lets the mining model write and execute arbitrary Python to test
+# its own ideas — the general-purpose replacement for hand-authoring a tool
+# per problem. It is also, unavoidably, arbitrary code execution by the model
+# on this machine. The executor applies best-effort containment (CPU / memory
+# / file-size limits, blocked network, throwaway working directory, plus this
+# skill's timeout and output cap) but that is CONTAINMENT, NOT A SECURITY
+# BOUNDARY. Enable it only if you accept that, and prefer running Hanno itself
+# inside a container or VM. Installed libraries (e.g. sympy, numpy) are
+# importable by the model's code if present in Hanno's environment.
+name: run_code
+description: >
+  Write and run a short Python program to TEST your idea, then let the result
+  shape your answer honestly. Use this the way a programmer uses a REPL:
+  check a construction on concrete inputs, loop over many cases to search for
+  a counterexample, compute an example, or run a small simulation. Your input
+  is a complete Python program; whatever it PRINTS is returned to you (so
+  print your findings explicitly). Standard library is available, plus any
+  installed packages such as sympy for symbolic math. No network access. An
+  idea you verified with code deserves higher self_rated_rigor; an idea your
+  code refuted must be reported as refuted in identified_weaknesses, not
+  quietly reworded.
+command: ["python3", "skills/scripts/run_code.py"]
+input_mode: stdin
+input_description: "A complete Python program; its printed stdout is returned to you."
+timeout_seconds: 25
+max_output_chars: 6000
+enabled: true

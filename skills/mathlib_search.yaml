@@ -1,0 +1,31 @@
+# GROUNDING TOOL for Lean/Mathlib proof and formalization work. Read-only,
+# no code execution -- searches the vendored Mathlib + Lean core source text
+# on disk.
+#
+# Added after two real observed failures on the same claim: one proof
+# attempt invoked `Nat.dvd_of_dvd_of_dvd_mul_left`, a LEMMA that does not
+# exist in Mathlib; a later attempt invoked `decide_mod_cast`, a TACTIC that
+# doesn't exist either (a different kind of Lean declaration entirely).
+# Both burned an entire proof-retry budget on a fabricated name. This tool
+# lets the model check a lemma OR tactic name -- or search by concept --
+# against the real, checked-out Mathlib + Lean source before betting a proof
+# attempt on a name it only half-remembers from training data.
+name: mathlib_search
+description: >
+  Search the real, installed Mathlib + Lean source for a lemma/theorem/def
+  OR a tactic by exact name or by keyword, BEFORE using that name in a
+  proof. Input is either a single dotted/underscored identifier you're
+  unsure exists (e.g. "Nat.dvd_of_dvd_of_dvd_mul_left" or a tactic name like
+  "decide_mod_cast") -- returns EXISTS (tagged [lemma/theorem] or [tactic])
+  with its real signature, or NOT FOUND with the closest real declarations
+  by keyword overlap so you can pick a real one instead of guessing -- or a
+  short keyword phrase (e.g. "nat dvd mul coprime") to search by concept.
+  Always check an unfamiliar lemma or tactic name here before spending a
+  proof attempt on it; a hallucinated name fails the whole attempt, this
+  check costs nothing.
+command: ["python3", "skills/scripts/mathlib_search.py"]
+input_mode: stdin
+input_description: "A lemma/theorem name to verify, or a short keyword phrase to search by concept."
+timeout_seconds: 20
+max_output_chars: 4000
+enabled: true

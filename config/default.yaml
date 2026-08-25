@@ -1,0 +1,82 @@
+# Project Hanno — default configuration
+# Every parameter here is documented. Changing any value and reloading the
+# config automatically logs a calibration_event to the Ledger (see hanno/config.py).
+# Env var overrides use double-underscore nesting, e.g.
+#   HANNO_EXCAVATOR__DAILY_SPEND_LIMIT_USD=10.0
+
+excavator:
+  candidates_per_cycle_per_seed: 50      # min 50, max 200 per tech spec Section 5
+  temperatures: [0.3, 0.6, 0.8, 1.0]     # must stay within 0.0-1.0 -- the Anthropic API rejects anything outside that range
+  max_tokens_per_candidate: 8000         # raised 2000->4000->8000: deep-iteration context growth plus tool-assisted investigation both truncated responses mid-JSON at smaller caps
+  domain_specific_variants_per_domain: 3
+  parallel_execution: true
+  max_parallel_calls: 10                 # rate-limit protection
+  daily_spend_limit_usd: 25.0            # hard cap, enforced in code (Step 3)
+  provider: "anthropic"                  # anthropic | openai_compatible -- openai_compatible covers OpenAI itself plus any self-hosted/hosted server speaking the same wire format (Ollama, LM Studio, vLLM, Groq, ...), see hanno/excavator/client_factory.py
+  base_url: null                         # only used for provider: openai_compatible, e.g. "http://localhost:11434/v1" for a local Ollama server -- see LOCAL_MODEL_SETUP.md
+  model: "claude-sonnet-4-5-20250929"
+  request_timeout_seconds: 600.0         # per-call HTTP read timeout. Hosted APIs finish well inside this; self-hosted local models are much slower tok/s and need this raised (e.g. 1800-3600) or long responses get killed mid-generation as a spurious "failed" candidate -- see LOCAL_MODEL_SETUP.md
+  max_translation_retries: 3             # generic retry budget for malformed JSON output
+  dead_end_reseed_threshold: 0.6         # dead_end signal ratio in a cycle that triggers a reseed recommendation
+  arm_selection_strategy: "ucb1"         # ucb1 | round_robin -- how (temperature, variant, reasoning_effort) is chosen per candidate
+  ucb1_exploration_constant: 1.4         # higher = more exploration of unproven arms, lower = exploits the current best arm harder
+  reasoning_efforts: ["standard", "deep"]  # "deep" uses real extended thinking (forces temperature=1.0, costs more tokens)
+  deep_thinking_budget_tokens: 4096      # extended-thinking token budget for "deep" arms
+  deep_reasoning_max_tokens: 16000       # response token budget for "deep" arms; must exceed deep_thinking_budget_tokens
+  max_prior_claims_in_prompt: 15         # most-recent prior core_claims for this seed fed back into every prompt, so candidates diverge instead of reconverging
+  wave_size: 0                           # 0 = full parallel (fastest). >0 = stage the cycle into sequential waves of this size, feeding each wave's core_claims forward -- real intra-cycle diversity, at the cost of wall-clock time
+  iteration_top_k: 2                     # beam width for iterative mining (hanno mine --depth): how many top candidates carry forward into the next iteration
+  strong_path_score_threshold: 0.6       # best-of-beam path_score that must be sustained for a "strong path" reseed recommendation
+  min_iterations_for_reseed: 2           # consecutive iterations that must clear strong_path_score_threshold before recommending human reseed
+  beam_diversity_max_similarity: 0.85    # beam members must be pairwise below this cosine similarity (1.0 disables) -- stops both beam slots holding the same idea in different words
+  iteration_exploration_thread: true     # each iteration >= 2 also mines the ORIGINAL seed fresh ("wildcat" thread), competing for beam slots -- anti-tunneling, ~+1 thread of cost per iteration
+  iteration_plateau_patience: 0          # stop iterating early after this many consecutive iterations without a new best score; 0 disables
+  iteration_lineage_retention_threshold: 0.5  # a lineage whose best-ever path_score clears this bar stays eligible for the next beam even if this iteration's refinement of it scored lower -- gives a promising idea repeated attempts instead of letting one weak roll kill it. 0 disables.
+  max_lean_checks_per_iteration: 3       # --until-promising: how many of this iteration's eligible candidates get Lean-checked, not just the single top-scoring one -- self-rated path_score alone isn't a trustworthy enough signal to gate the whole check budget down to one winner per iteration
+
+skills:                                  # miner-registered verification tools (see skills/*.yaml)
+  enabled: true
+  directory: "skills"
+  max_tool_rounds_per_candidate: 6       # each round re-sends the conversation; raised from 3 -- real runs hit that cap mid-investigation, and the run-out now triggers a forced JSON finalization call instead of a parse failure
+
+fingerprint:                             # present now, unused until Step 4
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  compressed_dimensions: 128
+  similarity_threshold_near_duplicate: 0.92
+  similarity_threshold_exact_duplicate: 0.99
+  calibration_minimum_fingerprints: 500
+  recalibration_interval: 1000
+
+sieve:                                   # present now, unused until Step 5
+  coherence_weight: 0.25
+  novelty_weight: 0.25
+  significance_weight: 0.25
+  fertility_weight: 0.15
+  formalizability_weight: 0.10
+  pass_threshold: 0.65
+  coherence_minimum: 0.50
+  novelty_minimum: 0.30
+  literature_databases: ["arxiv", "semantic_scholar"]
+
+lean_verifier:                           # used by `hanno lean-pilot`, `hanno mine --until-promising`, and `hanno discoveries verify`
+  lean_binary_path: "lean"
+  lean_timeout_seconds: 120
+  max_translation_attempts: 3            # retries for translating an informal claim into Lean syntax
+  max_proof_attempts: 5                  # separate, larger retry budget for the deep-verification proof-search loop -- a real proof is a harder ask than a statement translation
+  use_server_mode: true                  # not yet implemented -- current checks shell out per-file (see hanno/lean/checker.py); the REPL/server mode this anticipates is the natural next step if per-file latency becomes the bottleneck
+  mathlib_cache_path: "data/mathlib_cache"
+
+ledger:
+  database_path: "data/hanno.db"
+  backup_enabled: true
+  backup_interval_hours: 24
+  export_path: "data/exports/"
+
+pipeline:
+  domains_enabled: ["mathematics"]       # science/philosophy added at Steps 9-10
+  human_review_required_before_public_claim: true
+
+logging:
+  log_dir: "logs"
+  log_file: "hanno.log"
+  level: "INFO"

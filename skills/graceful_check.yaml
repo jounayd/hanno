@@ -1,0 +1,18 @@
+# A safe example skill: verifies a graceful labeling of a tree, mechanically.
+# The script is stdlib-only and never evaluates model text as code — it just
+# parses JSON and checks arithmetic, so it is safe to leave enabled.
+name: graceful_check
+description: >
+  Verify a graceful labeling of a tree. Input must be a JSON object:
+  {"edges": [[u, v], ...], "labels": {"vertex": integer, ...}} where labels
+  assign 0..n-1 to the n vertices. Returns a JSON verdict reporting whether
+  the graph is a tree, whether the labels are a valid injective 0..n-1
+  assignment, the induced edge labels |label(u)-label(v)|, and whether they
+  cover exactly 1..n-1 (i.e. whether the labeling is graceful). Use this to
+  TEST any labeling you construct on a concrete tree before claiming it works.
+command: ["python3", "skills/scripts/graceful_check.py"]
+input_mode: stdin
+input_description: 'JSON: {"edges": [[u,v],...], "labels": {"vertex": int}}'
+timeout_seconds: 10
+max_output_chars: 4000
+enabled: true

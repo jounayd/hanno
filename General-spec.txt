@@ -1,0 +1,2248 @@
+================================================================================
+PROJECT HANNO — TECHNICAL SPECIFICATION v2.0
+Detailed System Design Document
+No Code — Architecture, Logic, Data, and Process Only
+================================================================================
+Document Version: 2.0
+Date: June 2026
+Scope: MVP Prototype for Proof of Concept
+Domains: Mathematics, Science, Philosophy
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+1.  System Purpose and Design Philosophy
+2.  Architecture Overview
+3.  Domain Definitions and Scope
+4.  Module 1: Seed Management System
+5.  Module 2: Excavator
+6.  Module 3: Fingerprint Engine
+7.  Module 4: Sieve
+8.  Module 5: Domain Verifier
+9.  Module 6: Ledger
+10. Module 7: Cartographer
+11. Module 8: Reporting Engine
+12. Data Models (All Domains)
+13. Pipeline Flow
+14. Configuration Parameters
+15. Performance Expectations (Honest)
+16. Risk Register
+17. Development Phases
+18. Seed Corpus: Mathematics
+19. Seed Corpus: Science
+20. Seed Corpus: Philosophy
+21. What Is Out of Scope for MVP
+
+================================================================================
+1. SYSTEM PURPOSE AND DESIGN PHILOSOPHY
+================================================================================
+
+Project Hanno is a knowledge mining system. It uses AI language models to
+systematically explore the space of ideas that current models contain but
+have never produced. The core thesis is that the meaningful output space of
+modern AI models is so vast that almost none of it has ever been instantiated
+— and that this unexplored space contains genuinely novel ideas in mathematics,
+science, and philosophy that no human has yet articulated.
+
+The system is a prototype. Its purpose is to demonstrate three things before
+any public release, fundraising, or whitepaper:
+
+  CLAIM 1: AI models can produce candidate novel ideas at scale when properly
+           directed by seed concepts and temperature variation.
+
+  CLAIM 2: Novelty within the system can be detected automatically using
+           semantic fingerprinting, preventing duplicate work across mining
+           cycles.
+
+  CLAIM 3: Domain-specific verification can filter meaningful candidates from
+           noise — using formal proof checkers for mathematics, falsifiability
+           analysis for science, and logical consistency analysis for
+           philosophy.
+
+DESIGN PRINCIPLES:
+
+  Honesty over impressiveness.
+    The system should never overstate what it has found. A candidate idea is
+    not a discovery until it passes verification. A verified idea is not
+    confirmed novel until a domain expert reviews it. The pipeline must make
+    these distinctions clear at every stage.
+
+  Fail fast and cheaply.
+    The most expensive verification (Lean proof checking, expert review) must
+    only run on candidates that have already passed cheaper filters. The
+    pipeline is ordered strictly from cheapest to most expensive evaluation.
+
+  Everything recorded.
+    Every candidate generated, every evaluation performed, every decision made
+    must be persisted. The ledger is append-only. This is the foundation of
+    the future blockchain layer.
+
+  Scope discipline.
+    The MVP covers three domains: mathematics, science, and philosophy. Within
+    these, the system uses only the verification methods described in this
+    document. No scope expansion during MVP phase.
+
+================================================================================
+2. ARCHITECTURE OVERVIEW
+================================================================================
+
+The system consists of eight modules arranged in a linear pipeline with
+feedback loops. Data flows from seeds through excavation through filtering
+through verification through storage. The cartographer reads from storage and
+feeds back into seed selection.
+
+HIGH LEVEL FLOW:
+
+  [Seeds] → [Excavator] → [Fingerprint Engine] → [Sieve] → [Domain Verifier]
+                                                               → [Ledger]
+                                                               → [Cartographer]
+                                                               → [Reporter]
+
+DETAILED FLOW:
+
+  1. Seed Management provides one or more seed concepts to the Excavator.
+     Seeds come from humans, from AI generation, or from the Cartographer's
+     suggestions based on unexplored territory.
+
+  2. Excavator takes each seed and generates N candidate ideas using multiple
+     prompt strategies and temperature settings in parallel. Raw candidates
+     are immediately persisted to the Ledger before any filtering.
+
+  3. Fingerprint Engine processes every candidate. It converts the candidate's
+     text into a semantic hash and checks it against all previously stored
+     fingerprints. Exact duplicates are rejected immediately. Near-duplicates
+     are flagged for review but not automatically rejected.
+
+  4. Sieve evaluates non-duplicate candidates across multiple dimensions:
+     coherence, novelty against external literature, significance, and
+     fertility. It assigns a score and a pass/fail decision. Failed candidates
+     are logged with reasons.
+
+  5. Domain Verifier applies domain-specific verification to sieve passes.
+     Mathematics candidates go to formal proof checking. Science candidates
+     go to falsifiability analysis. Philosophy candidates go to logical
+     consistency analysis. This is the most expensive layer and only runs
+     on sieve passes.
+
+  6. Ledger records everything permanently. It is the ground truth of the
+     system. All downstream processes read from the Ledger.
+
+  7. Cartographer reads the Ledger continuously. It builds a map of explored
+     idea space, identifies under-explored regions, flags bottleneck ideas,
+     and generates seed suggestions for the next Excavator cycle.
+
+  8. Reporting Engine reads from the Ledger on demand and produces structured
+     reports of discoveries, statistics, and exploration maps.
+
+FEEDBACK LOOPS:
+
+  Loop A: Cartographer → Seed Management
+    The Cartographer identifies regions of idea space not yet explored and
+    generates seeds targeting those regions. This prevents the Excavator from
+    repeatedly exploring the same territory.
+
+  Loop B: Domain Verifier errors → Excavator prompts
+    When the Domain Verifier rejects candidates for specific reasons (e.g.,
+    Lean translation fails consistently for a category of statement), this
+    feedback is used to refine Excavator prompts in that area.
+
+  Loop C: Human review → Sieve thresholds
+    After each batch of human expert review, sieve thresholds are calibrated
+    based on which candidates experts found valuable versus not.
+
+================================================================================
+3. DOMAIN DEFINITIONS AND SCOPE
+================================================================================
+
+The MVP covers exactly three domains. Domain boundaries are strict.
+The system must not attempt to evaluate ideas that fall outside these
+boundaries during the MVP phase.
+
+--------------------------------------------------------------------------------
+DOMAIN 1: MATHEMATICS
+--------------------------------------------------------------------------------
+
+Definition:
+  Formal mathematical structures, conjectures, theorems, proofs, definitions,
+  and frameworks that can be expressed in the language of formal mathematics
+  and evaluated for correctness by automated proof assistants.
+
+In scope:
+  - Novel conjectures: statements believed true but not yet proven
+  - Partial proofs: proof sketches with identified key steps
+  - New definitions: formal definitions that generalize or unify existing
+    mathematical structures
+  - New frameworks: axiomatic systems or structural approaches that open
+    new areas of inquiry
+  - Cross-domain connections: formal identification of structural isomorphisms
+    between different areas of mathematics
+
+Sub-domains included:
+  Number theory, algebra (abstract, linear, commutative), topology (algebraic,
+  differential, geometric), analysis (real, complex, functional), combinatorics,
+  graph theory, logic and foundations, category theory, differential geometry,
+  probability theory, information theory (mathematical aspects)
+
+Out of scope for mathematics domain:
+  - Applied mathematics without novel theoretical content
+  - Numerical methods or computational approaches without mathematical novelty
+  - Mathematical physics (handled in science domain)
+  - Statistics (unless novel theoretical result)
+
+Verification method: Lean 4 formal proof assistant with Mathlib library
+  A candidate passes mathematics verification if its formal statement can be
+  expressed as a well-typed Lean 4 theorem and the statement is not trivially
+  derivable from a single Mathlib lemma. Full proof is not required for MVP.
+  Statement well-typedness is the primary verification target.
+
+--------------------------------------------------------------------------------
+DOMAIN 2: SCIENCE
+--------------------------------------------------------------------------------
+
+Definition:
+  Empirical hypotheses, theoretical frameworks, predictions, and mechanistic
+  explanations in natural science that are falsifiable, make testable
+  predictions, and connect to existing scientific knowledge in non-trivial ways.
+
+In scope:
+  - Novel empirical hypotheses: claims about natural phenomena not yet tested
+  - Theoretical frameworks: conceptual structures that unify existing findings
+    or predict new phenomena
+  - Mechanistic proposals: proposed causal explanations for known phenomena
+  - Cross-domain scientific connections: formal identification of structural
+    similarities between findings in different scientific fields
+  - Quantitative predictions: specific numerical or directional predictions
+    derivable from a theoretical position
+
+Sub-domains included:
+  Physics (theoretical, particle, condensed matter, cosmological),
+  Chemistry (theoretical, computational, organic mechanisms),
+  Biology (theoretical, evolutionary, molecular, systems biology),
+  Neuroscience (theoretical, computational),
+  Cognitive science (theoretical aspects),
+  Ecology (theoretical, mathematical ecology),
+  Materials science (theoretical aspects),
+  Mathematical physics and physical mathematics
+
+Out of scope for science domain:
+  - Engineering applications without novel theoretical content
+  - Clinical medicine or specific drug claims (regulatory and ethical concerns)
+  - Social sciences (insufficient falsifiability for this system)
+  - Economics (handled separately — too contested for automated verification)
+  - Pseudoscientific claims or areas without scientific consensus basis
+
+Verification method: Falsifiability and consistency analysis
+  A candidate passes science verification if it meets all of:
+    a) States at least one specific, falsifiable prediction
+    b) Is not contradicted by established experimental results
+    c) Connects to existing scientific frameworks non-trivially
+    d) Specifies the conditions under which it would be falsified
+  Verification is performed by structured AI analysis against scientific
+  literature, not by actual experiment. Experimental validation is outside
+  the scope of the MVP.
+
+--------------------------------------------------------------------------------
+DOMAIN 3: PHILOSOPHY
+--------------------------------------------------------------------------------
+
+Definition:
+  Formal arguments, conceptual analyses, logical frameworks, and philosophical
+  positions in analytic philosophy that can be evaluated for logical validity,
+  internal consistency, and non-triviality.
+
+In scope:
+  - Novel arguments: formally structured arguments with stated premises and
+    conclusions
+  - Conceptual analyses: precise definitions or decompositions of concepts
+    that reveal non-obvious structure
+  - Thought experiments: novel scenarios that reveal tensions in existing
+    positions
+  - Logical frameworks: formal or semi-formal systems for reasoning about
+    philosophical problems
+  - Counter-examples: specific cases that challenge established philosophical
+    positions
+  - Connections between philosophical positions and formal sciences
+
+Sub-domains included:
+  Philosophy of mathematics, philosophy of science, logic and formal epistemology,
+  philosophy of mind (analytic tradition), metaphysics (formal approaches),
+  philosophy of language, decision theory and formal ethics,
+  philosophy of physics, philosophy of biology
+
+Out of scope for philosophy domain:
+  - Continental philosophy (insufficient formal structure for automated analysis)
+  - Aesthetic philosophy (no falsifiability criterion)
+  - Purely normative ethics without formal structure
+  - Political philosophy (too value-laden for automated novelty assessment)
+  - Religious philosophy
+
+Verification method: Logical consistency and validity analysis
+  A candidate passes philosophy verification if it meets all of:
+    a) Premises are explicitly stated
+    b) Argument form is valid (conclusion follows from premises)
+    c) No obvious equivocation in key terms across premises
+    d) Position is not trivially equivalent to a named existing position
+    e) Engages with and differentiates from closest existing positions
+  Verification is performed by structured AI analysis. Human expert review
+  is mandatory before any philosophy candidate is claimed as a discovery.
+
+================================================================================
+4. MODULE 1: SEED MANAGEMENT SYSTEM
+================================================================================
+
+PURPOSE:
+  Manages the pool of seed concepts that direct the Excavator's exploration.
+  Seeds are the entry points into idea space. Seed quality directly determines
+  excavation quality. The seed system is the primary mechanism for directing
+  compute toward unexplored territory.
+
+SEED TYPES:
+
+  Type 1: Human seeds
+    Submitted by human participants. Highest quality signal. These represent
+    areas where human intuition suggests unexplored territory exists.
+    Format: Free text description of a conceptual direction, question, or
+    area of interest. Length: 10-200 words.
+
+  Type 2: AI-generated seeds
+    Generated by the system itself, either randomly exploring a domain or
+    directed by the Cartographer toward unexplored regions. Lower average
+    quality than human seeds but can be generated at high volume.
+
+  Type 3: Derivative seeds
+    Generated from existing discoveries in the Ledger. When a discovery is
+    made, the system automatically generates seeds in the conceptual
+    neighborhood of that discovery to explore adjacent territory.
+    These are the highest-value seeds for compounding exploration.
+
+SEED ATTRIBUTES:
+  - Unique ID
+  - Text content
+  - Type (human / ai-generated / derivative)
+  - Domain (mathematics / science / philosophy / cross-domain)
+  - Submitter identifier (for human seeds)
+  - Parent discovery ID (for derivative seeds)
+  - Submission timestamp
+  - Status (queued / active / exhausted / retired)
+  - Fertility score (computed after use: discoveries produced / cycles run)
+  - Total cycles run against this seed
+  - Total candidates produced from this seed
+  - Total discoveries attributed to this seed
+
+SEED QUEUE MANAGEMENT:
+  Seeds are maintained in a priority queue. Priority is determined by:
+    - Fertility score (higher = higher priority, but unknown for new seeds)
+    - Recency (new seeds get a priority boost for initial exploration)
+    - Domain balance (system ensures no single domain dominates the queue)
+    - Cartographer signal (seeds targeting under-explored regions get boost)
+
+  A seed is marked exhausted when three consecutive cycles produce zero
+  sieve passes. It is retired but never deleted.
+
+SEED VALIDATION:
+  Before entering the queue, seeds are evaluated for:
+    - Minimum specificity (too vague seeds are rejected with feedback)
+    - Domain assignability (must clearly belong to at least one domain)
+    - Non-duplication (similar to existing seeds are flagged, not auto-rejected)
+    - Appropriate scope (neither too broad nor too narrow)
+
+  Validation is performed by AI evaluation with a structured rubric.
+  Human seeds that fail validation are returned to submitter with feedback.
+
+CROSS-DOMAIN SEEDS:
+  Seeds that span multiple domains are explicitly supported and given a
+  priority bonus because cross-domain exploration is where the most
+  surprising discoveries are found. Examples:
+    - "Connections between information entropy and topological complexity"
+      (mathematics + physics)
+    - "Formal accounts of emergence that satisfy both physical and
+      philosophical constraints" (science + philosophy)
+    - "Category-theoretic foundations for scientific theory change"
+      (mathematics + philosophy of science)
+
+================================================================================
+5. MODULE 2: EXCAVATOR
+================================================================================
+
+PURPOSE:
+  Generates large numbers of candidate ideas from seed concepts using
+  AI language models. The Excavator is the engine of the system — it
+  converts compute and seed concepts into raw candidate ideas.
+
+EXCAVATION STRATEGY:
+  For each seed, the Excavator runs multiple parallel generation calls
+  using different combinations of:
+    - Temperature settings (controlling randomness/creativity)
+    - Prompt variants (different framings of the generation task)
+    - Domain-specific instructions
+
+  This multi-axis exploration is deliberate. Different temperatures and
+  prompt variants access different regions of the model's output space
+  for the same seed concept. High temperature produces more creative but
+  less rigorous candidates. Low temperature produces more rigorous but
+  potentially less novel candidates. Both are needed.
+
+TEMPERATURE STRATEGY:
+  Four temperature settings are used in each excavation run:
+
+  Temperature 0.3 (Rigorous):
+    For generating well-formed, technically precise candidates.
+    Lower creativity but higher coherence.
+    Best for: formal mathematical statements, precise scientific hypotheses.
+
+  Temperature 0.7 (Balanced):
+    Standard creative-analytical balance.
+    Best for: general exploration across all domains.
+
+  Temperature 1.0 (Creative):
+    Higher divergence from training distribution.
+    More likely to produce unusual combinations.
+    Best for: cross-domain connections, philosophical frameworks.
+
+  Temperature 1.2 (Exploratory):
+    Maximum divergence within quality bounds.
+    High noise rate but occasionally produces genuinely surprising outputs.
+    Best for: discovering edges of idea space near the seed.
+
+PROMPT VARIANT STRATEGY:
+  Five prompt variants are used across all domains, plus domain-specific
+  variants for each domain:
+
+  Universal Variant 1 — Direct Conjecture:
+    Instructs the model to state a single specific claim that is non-obvious,
+    formally statable, and connects to existing knowledge in the domain.
+    Emphasis on precision and formal correctness.
+
+  Universal Variant 2 — Framework Proposal:
+    Instructs the model to propose a new conceptual framework, definition,
+    or structural approach that generalizes or unifies existing ideas.
+    Emphasis on generativity and scope.
+
+  Universal Variant 3 — Connection Discovery:
+    Instructs the model to identify a non-obvious structural connection
+    between two areas within or across domains.
+    Emphasis on bridging and synthesis.
+
+  Universal Variant 4 — Adversarial Insight:
+    Instructs the model to identify something surprising, counterintuitive,
+    or contrary to common assumptions that is nevertheless defensible.
+    Emphasis on challenging existing positions.
+
+  Universal Variant 5 — Open Problem Framing:
+    Instructs the model to identify and precisely formulate an open question
+    or problem that is not currently well-posed in the literature.
+    Emphasis on question generation rather than answer generation.
+
+  Mathematics-specific variants:
+    - Proof technique proposal: novel approach to attacking a known problem
+    - Counterexample construction: candidate counterexample to a known conjecture
+    - Generalization: formal generalization of a known theorem
+
+  Science-specific variants:
+    - Mechanistic hypothesis: proposed causal mechanism for an observed phenomenon
+    - Unification proposal: framework connecting two disconnected research areas
+    - Prediction generation: specific quantitative prediction from a theoretical
+      position
+
+  Philosophy-specific variants:
+    - Thought experiment: novel scenario illuminating a philosophical tension
+    - Conceptual distinction: identification of a conflation in existing discourse
+    - Formal argument: structured argument for a philosophical position
+
+CANDIDATE GENERATION PARAMETERS:
+  Per excavation cycle (one seed):
+    - Minimum candidates: 50
+    - Maximum candidates: 200 (configurable)
+    - Temperature settings: 4
+    - Universal prompt variants: 5
+    - Domain-specific variants: 3 per domain
+    - Parallel execution: yes (all calls run simultaneously where possible)
+
+  A full cycle on one seed with 50 candidates uses approximately:
+    - 50 separate API calls to the language model
+    - ~10-15 candidates per temperature setting
+    - ~10 candidates per prompt variant
+    - Overlap between temperature and variant combinations is intentional
+
+CANDIDATE STRUCTURE (what the Excavator must produce per candidate):
+  Every candidate output must contain:
+    - Domain classification (math / science / philosophy / cross-domain)
+    - Core claim: the central novel assertion, precisely stated
+    - Formal statement: expressed in domain-appropriate formal language
+    - Intuition: non-technical explanation of why this might be true or
+      interesting
+    - Connection to existing knowledge: what known ideas this relates to
+    - Potential significance: why this would matter if true or valid
+    - Self-assessed novelty: the model's own estimate of whether this is known
+    - Identified weaknesses: the model's own critique of the candidate
+
+  The self-assessment and weakness identification are not used for filtering
+  but are logged. They provide useful signal for sieve calibration.
+
+OUTPUT QUALITY CONTROL:
+  Before passing to the Fingerprint Engine, candidates are checked for:
+    - Minimum length (too short = likely vacuous)
+    - Maximum length (too long = likely unfocused, truncate to core claim)
+    - Presence of all required fields
+    - Domain assignability
+  Candidates failing these checks are logged and discarded without entering
+  the main pipeline. These are not counted as pipeline failures.
+
+================================================================================
+6. MODULE 3: FINGERPRINT ENGINE
+================================================================================
+
+PURPOSE:
+  Converts every candidate into a compact semantic representation that
+  captures meaning independent of surface wording. Detects when two
+  candidates express the same underlying idea even if phrased completely
+  differently. This is the primary anti-duplication mechanism.
+
+  The Fingerprint Engine is the most technically novel component of the
+  system. It is designed to be the core IP of Project Hanno.
+
+FINGERPRINTING PROCESS (step by step):
+
+  Step 1: Text preprocessing
+    The candidate's core claim and formal statement are concatenated.
+    Other fields (intuition, connections) are excluded from fingerprinting
+    to focus on semantic content, not presentation.
+    Text is normalized: whitespace standardized, symbols preserved.
+
+  Step 2: Semantic embedding
+    The preprocessed text is passed through a local sentence embedding model
+    (does not require API call — runs on local hardware).
+    Output: a high-dimensional vector (typically 384 or 768 dimensions)
+    representing the semantic content of the idea.
+
+    The embedding model is fixed for the lifetime of the MVP. Changing the
+    embedding model invalidates all stored fingerprints and requires
+    re-fingerprinting the entire ledger. This must not happen without
+    a deliberate migration process.
+
+  Step 3: Dimensionality reduction
+    The high-dimensional embedding is compressed to a fixed lower dimension
+    (target: 128 dimensions) using a dimensionality reduction technique.
+    This compression is learned from the distribution of all fingerprints
+    seen so far and must be periodically updated.
+
+    IMPORTANT: The reduction model is not available until a minimum number
+    of fingerprints exist. During the early calibration phase (fewer than
+    500 fingerprints), use raw truncation of the embedding vector instead.
+    After 500 fingerprints, fit the reduction model. Refit every 1000
+    new fingerprints thereafter.
+
+  Step 4: Cryptographic hashing
+    The compressed vector is serialized and hashed using SHA-256.
+    This produces a deterministic 256-bit fingerprint string.
+    The hash is the canonical identifier for the idea's semantic content.
+
+  Step 5: Similarity computation
+    The new fingerprint's compressed vector is compared against all stored
+    compressed vectors using cosine similarity.
+    Cosine similarity measures the angle between vectors in the compressed
+    space, not their magnitude, making it robust to length variation.
+
+  Step 6: Collision classification
+    Based on similarity score, the candidate is classified as:
+
+    EXACT DUPLICATE (similarity >= 0.99):
+      Semantically identical to an existing candidate or discovery.
+      Rejected immediately. The matching existing record is logged.
+      No further pipeline processing.
+
+    NEAR DUPLICATE (similarity >= threshold, default 0.92):
+      Very similar to an existing record. Flagged for human review.
+      Continues through pipeline but marked with near-duplicate warning.
+      Human reviewer decides whether to accept as genuinely distinct.
+
+    NOVEL (similarity < threshold):
+      Sufficiently distinct from all existing records.
+      Continues through pipeline without duplication warning.
+
+FINGERPRINT STORAGE:
+  All fingerprints are stored permanently in the Ledger with:
+    - The SHA-256 hash
+    - The compressed vector (for future similarity comparisons)
+    - The full embedding vector (for future re-compression if model changes)
+    - The candidate ID it corresponds to
+    - The embedding model used
+    - The compression model version used
+    - Timestamp
+
+  The full embedding vector is stored even though it is large because it
+  allows re-fingerprinting with a new compression model without re-calling
+  the embedding model.
+
+CROSS-DOMAIN FINGERPRINTING:
+  Ideas from different domains are fingerprinted in the same space.
+  This means cross-domain duplicates are also detected.
+  A mathematical conjecture and a philosophical claim that express the
+  same underlying structural insight will produce similar fingerprints.
+  This is a feature, not a bug — it surfaces cross-domain connections.
+
+FINGERPRINT COLLISION POLICY:
+  The similarity threshold is configurable and should be calibrated.
+  Starting value: 0.92
+  If human review consistently finds near-duplicates that are actually
+  distinct ideas: lower threshold
+  If near-duplicate review finds genuinely same ideas slipping through:
+  raise threshold
+  The threshold is a parameter, not a fixed truth.
+
+================================================================================
+7. MODULE 4: SIEVE
+================================================================================
+
+PURPOSE:
+  Multi-dimensional evaluation of candidates that have passed fingerprint
+  checking. The Sieve filters noise from signal using a combination of
+  automated AI evaluation and external literature comparison.
+
+  The Sieve is the most expensive module after Domain Verification because
+  it involves multiple AI evaluation calls per candidate. It should only
+  receive candidates that have passed the Fingerprint Engine.
+
+EVALUATION DIMENSIONS:
+  Every candidate is scored on five dimensions, each producing a score
+  from 0.0 to 1.0 with reasoning.
+
+  Dimension 1: Coherence (weight: 0.25)
+    Does this make sense as a statement within its domain?
+    Is the terminology used consistently?
+    Are the logical connectives correct?
+    Are there internal contradictions?
+    Domain-specific evaluation criteria:
+      Math: Is this expressible as a formal mathematical statement?
+      Science: Is this expressible as a testable empirical claim?
+      Philosophy: Are premises and conclusion clearly distinguished?
+    Score 0.0: Incoherent, uses terms incorrectly, self-contradictory
+    Score 0.5: Coherent in intent but imprecise or ambiguous
+    Score 1.0: Precise, unambiguous, domain-appropriate formal statement
+
+  Dimension 2: Novelty vs. external literature (weight: 0.25)
+    Is this different from existing published work?
+    Evaluation method:
+      a) Query external databases for related work using key terms
+         from the candidate's core claim
+      b) Embed returned abstracts and compare to candidate fingerprint
+      c) Score based on minimum similarity to any found related work
+    Score 0.0: Near-identical to a found existing result
+    Score 0.5: Related to existing work but not identical; extends it
+    Score 1.0: No closely related work found in databases searched
+    Databases queried: arXiv (all domains), PhilPapers (philosophy),
+    PubMed (science), Semantic Scholar (all domains)
+
+  Dimension 3: Significance (weight: 0.25)
+    Would this matter if true?
+    Would domain experts find this interesting or important?
+    Evaluation criteria:
+      Does it connect to known open problems?
+      Does it have implications beyond its immediate statement?
+      Does it simplify or unify existing results?
+      Is it non-trivially stronger than known results?
+    Score 0.0: Trivially true, uninteresting, no implications
+    Score 0.5: Interesting but narrow; limited implications
+    Score 1.0: Potentially important; broad implications; connects to major
+               open problems
+
+  Dimension 4: Fertility (weight: 0.15)
+    Does this idea open new questions?
+    A fertile idea generates more questions than it answers.
+    An infertile idea closes off inquiry.
+    Evaluation criteria:
+      How many new questions does this immediately raise?
+      Does it suggest new research directions?
+      Could it seed further excavation cycles?
+    Score 0.0: Dead end; answers everything it raises; generative potential nil
+    Score 0.5: Opens some new questions; moderately generative
+    Score 1.0: Highly generative; opens multiple new research directions;
+               would be an excellent seed for further excavation
+
+  Dimension 5: Formalizability (weight: 0.10)
+    Can this be expressed precisely enough for domain verification?
+    This dimension is forward-looking — evaluating whether Domain Verification
+    is worth attempting.
+    Score 0.0: Vague; cannot be made precise without losing the point
+    Score 0.5: Can be formalized with effort; some interpretation required
+    Score 1.0: Already stated with sufficient precision for formal evaluation
+
+SIEVE SCORING:
+  Final sieve score = weighted sum of five dimension scores.
+  Pass threshold: configurable, starting at 0.65.
+  Any candidate scoring below threshold on Coherence (< 0.50) is auto-failed
+  regardless of other scores — an incoherent idea cannot be a discovery.
+
+SIEVE SEQUENCING (ordered by cost, cheapest first):
+  1. Coherence check (one AI call, fast)
+  2. Fingerprint collision check (already done, no additional cost)
+  3. External literature novelty check (API calls to literature databases)
+  4. Significance evaluation (one AI call)
+  5. Fertility evaluation (one AI call)
+  6. Formalizability evaluation (one AI call, last because only needed
+     for candidates proceeding to Domain Verification)
+
+  Short-circuit rule: if Coherence score < 0.50, stop immediately.
+  If Literature novelty score < 0.30, stop and flag as known result.
+  This prevents spending evaluation budget on clearly failed candidates.
+
+SIEVE CALIBRATION:
+  Sieve thresholds are not fixed. After each batch of human expert review,
+  the following calibration process runs:
+
+  - Compare expert judgments against sieve scores for reviewed candidates
+  - Identify dimension weights that best predict expert judgment
+  - Adjust weights and thresholds to improve alignment with expert judgment
+  - Log all calibration adjustments with the data that motivated them
+
+  The sieve is a living model, not a fixed algorithm.
+
+================================================================================
+8. MODULE 5: DOMAIN VERIFIER
+================================================================================
+
+PURPOSE:
+  Applies domain-specific formal or semi-formal verification to candidates
+  that have passed the Sieve. This is the most expensive module and should
+  only receive candidates with sieve scores above threshold.
+
+  The Domain Verifier does not determine whether an idea is true.
+  It determines whether an idea is well-formed enough to be taken seriously
+  by domain standards.
+
+--------------------------------------------------------------------------------
+VERIFIER 1: MATHEMATICS — LEAN 4 FORMAL VERIFICATION
+--------------------------------------------------------------------------------
+
+WHAT IT DOES:
+  Translates the candidate mathematical statement into Lean 4 formal syntax
+  and checks whether the statement is well-typed and expressible within
+  the Lean 4 / Mathlib ecosystem.
+
+  A passing result means: this statement is formally expressible and
+  non-trivially related to existing Mathlib content.
+  It does not mean: the statement is true or that a proof exists.
+
+VERIFICATION PIPELINE:
+
+  Stage 1: Statement extraction
+    Extract the formal mathematical statement from the candidate.
+    Identify all mathematical objects referenced.
+    Identify the domain of mathematics (topology, algebra, etc.).
+    Identify Mathlib areas likely to be relevant.
+
+  Stage 2: Lean translation
+    Translate the extracted statement into Lean 4 syntax.
+    This uses AI translation with a structured prompt that:
+      - Specifies required Lean 4 syntax
+      - Specifies available Mathlib areas to use
+      - Requires all type annotations
+      - Uses sorry as proof placeholder (we are not proving, only stating)
+      - Requires explicit imports
+    Translation confidence is scored and stored.
+
+  Stage 3: Type checking
+    The generated Lean 4 file is submitted to the Lean 4 checker.
+    The checker verifies:
+      - All types are consistent
+      - All referenced objects exist in Mathlib
+      - The statement is well-formed
+    The checker does not attempt to construct a proof.
+
+  Stage 4: Triviality check
+    If the type check passes, an additional check asks:
+    Is this statement trivially derivable from a single Mathlib lemma?
+    If yes: the candidate is classified as KNOWN, not novel.
+    If no: the candidate passes mathematics verification.
+
+  Stage 5: Result classification
+    VERIFIED: Statement is well-typed, non-trivial
+    KNOWN: Statement is a known Mathlib result
+    UNTRANSLATABLE: Valid mathematical idea but cannot be expressed in
+                    current Lean 4 / Mathlib (stored separately, valuable)
+    MALFORMED: Translation failed due to incoherent source statement
+    TIMEOUT: Lean checker exceeded time limit (retry once, then log)
+
+KNOWN CHALLENGES WITH LEAN INTEGRATION:
+  - Translation failure rate: ~50-70% on first attempt
+    Mitigation: Retry up to 3 times, feeding errors back to the translator
+    Mitigation: Track common failure patterns for prompt improvement
+
+  - Mathlib compilation time: 30-120 seconds per check
+    Mitigation: Use Lean server mode to maintain a running Lean process
+    Mitigation: Cache compiled Mathlib state
+
+  - Some valid mathematics has no Mathlib equivalent yet
+    Mitigation: UNTRANSLATABLE is a valid and valuable outcome — it means
+    the idea is potentially frontier mathematics beyond current Mathlib
+
+--------------------------------------------------------------------------------
+VERIFIER 2: SCIENCE — FALSIFIABILITY AND CONSISTENCY ANALYSIS
+--------------------------------------------------------------------------------
+
+WHAT IT DOES:
+  Evaluates scientific candidates for Popperian falsifiability, internal
+  consistency, and compatibility with established experimental results.
+
+  A passing result means: this hypothesis makes testable predictions,
+  is not contradicted by known results, and connects to existing science.
+  It does not mean: the hypothesis is true or has been tested.
+
+VERIFICATION PIPELINE:
+
+  Stage 1: Hypothesis extraction
+    Extract the core empirical claim.
+    Identify what the hypothesis predicts.
+    Identify the scientific domain.
+    Identify the closest existing theoretical frameworks.
+
+  Stage 2: Falsifiability analysis
+    For each prediction identified:
+      - Is there a conceivable experiment that could falsify it?
+      - Is that experiment feasible in principle (even if not currently)?
+      - Is the prediction specific enough to be testable?
+    A hypothesis with no falsifiable predictions fails immediately.
+    A hypothesis with at least one specific, feasible falsification test passes
+    this stage.
+
+  Stage 3: Literature consistency check
+    Query scientific databases for existing experimental results in the
+    relevant domain. Compare hypothesis predictions against known results.
+    Classification:
+      CONSISTENT: No known results contradict the hypothesis
+      PARTIALLY CONSISTENT: Some results support, some tension exists
+      CONTRADICTED: Known results already falsify the hypothesis
+    Contradicted hypotheses fail verification.
+
+  Stage 4: Theoretical framework connection
+    Does this hypothesis connect to existing theoretical frameworks?
+    Is it derivable from, or consistent with, established theory?
+    Does it explain something existing theories do not explain?
+    A hypothesis that connects to no existing framework and explains nothing
+    known is scientifically weak even if technically falsifiable.
+
+  Stage 5: Novelty assessment
+    Is the experimental test suggested by this hypothesis one that has
+    already been run? If so, what were the results?
+    If the hypothesis has already been tested and the prediction confirmed
+    or disconfirmed, it is not novel — it is a rediscovery.
+
+  Stage 6: Result classification
+    VERIFIED: Falsifiable, consistent, connected, novel test implied
+    CONTRADICTED: Falsified by existing experimental evidence
+    REDUNDANT: Already tested and result known
+    UNFALSIFIABLE: Cannot specify a falsification condition
+    DISCONNECTED: Does not connect to existing scientific knowledge
+
+--------------------------------------------------------------------------------
+VERIFIER 3: PHILOSOPHY — LOGICAL VALIDITY AND NOVELTY ANALYSIS
+--------------------------------------------------------------------------------
+
+WHAT IT DOES:
+  Evaluates philosophical candidates for argument validity, premise
+  plausibility, internal consistency, and distinctness from existing
+  named philosophical positions.
+
+  A passing result means: the argument is valid, premises are plausible,
+  and the position is distinct from named existing positions.
+  It does not mean: the argument is sound (premises might be false).
+  Human expert review is mandatory for all philosophy candidates.
+
+VERIFICATION PIPELINE:
+
+  Stage 1: Argument reconstruction
+    Extract the argument into standard form:
+      - Numbered premises (P1, P2, ...)
+      - Intermediate conclusions (IC1, IC2, ...)
+      - Final conclusion (C)
+    Identify all key terms and their definitions as used in the argument.
+    If the argument cannot be reconstructed into standard form, it fails.
+
+  Stage 2: Validity check
+    Does the conclusion follow from the premises?
+    Evaluation criteria:
+      - Would the conclusion be true if all premises were true?
+      - Are there hidden premises needed to make the argument valid?
+      - Does the argument commit any standard formal fallacies?
+    An invalid argument fails verification.
+
+  Stage 3: Consistency check
+    Are the premises mutually consistent?
+    Does the candidate commit to incompatible claims across its premises?
+    Inconsistent premise sets fail verification.
+
+  Stage 4: Term consistency check
+    Are key terms used with consistent meaning throughout?
+    Equivocation (using the same term with different meanings) is a
+    common failure mode in philosophy.
+    Candidates with clear equivocation fail verification.
+
+  Stage 5: Existing position comparison
+    Compare the candidate position to the closest named existing
+    philosophical positions. For each close existing position:
+      - What does the candidate share with this position?
+      - What specifically distinguishes the candidate from this position?
+    If no distinguishing features can be identified, the candidate is
+    classified as a restatement of an existing position.
+
+  Stage 6: Engagement requirement
+    Does the candidate acknowledge and respond to the strongest
+    objection to its conclusion?
+    A philosophical position that ignores obvious objections is
+    weaker than one that addresses them.
+    This dimension affects significance score but not pass/fail.
+
+  Stage 7: Result classification
+    VERIFIED: Valid, consistent, term-consistent, distinct from existing
+    INVALID: Conclusion does not follow from premises
+    INCONSISTENT: Premises are mutually inconsistent
+    EQUIVOCATING: Key terms shift meaning across premises
+    RESTATEMENT: Indistinguishable from a named existing position
+    UNSTRUCTURED: Cannot be reconstructed into argument form
+
+================================================================================
+9. MODULE 6: LEDGER
+================================================================================
+
+PURPOSE:
+  The permanent, append-only record of all system activity. The Ledger is
+  the ground truth of the system and the foundation of the future blockchain.
+  Nothing in the Ledger is ever modified or deleted. Every event is recorded.
+
+LEDGER DESIGN PRINCIPLES:
+  - Append-only: no updates, no deletes, ever
+  - Complete: everything that happens in the pipeline is recorded
+  - Timestamped: every record has a creation timestamp
+  - Linked: every record references the records it depends on
+  - Exportable: the entire Ledger must be exportable to JSON at any time
+
+RECORD TYPES:
+
+  Seeds:
+    Complete record of every seed in the system.
+    Status history is stored as separate events, not field updates.
+
+  Candidates:
+    Every candidate generated by the Excavator.
+    Stored before any filtering — the raw output is the permanent record.
+    Fields: ID, seed ID, full text, domain, temperature, prompt variant,
+    model used, timestamp.
+
+  Fingerprints:
+    Every fingerprint generated.
+    Fields: hash, compressed vector, full embedding vector, candidate ID,
+    embedding model, compression model version, timestamp.
+
+  Collision events:
+    Every collision detection result.
+    Fields: query fingerprint hash, matched fingerprint hash, similarity score,
+    collision classification, timestamp.
+
+  Sieve evaluations:
+    Every dimension score, reasoning, and pass/fail decision.
+    One record per candidate per sieve run.
+    Fields: candidate ID, all five dimension scores, all reasoning strings,
+    final score, passed boolean, timestamp.
+
+  Domain verification results:
+    Every domain verification attempt and result.
+    One record per attempt (retries are separate records).
+    Fields: candidate ID, domain, verification method, result classification,
+    full verifier output, translation (for Lean), confidence scores, timestamp.
+
+  Discoveries:
+    The core record type. Created when a candidate passes all pipeline stages.
+    Fields: ID, candidate ID, fingerprint hash, seed ID, domain, tier,
+    full statement, formal statement, sieve score, verification result,
+    lean-verified boolean (math only), human-reviewed boolean,
+    human reviewer ID (when reviewed), creation timestamp.
+
+  Human review records:
+    Every human expert review of a discovery or candidate.
+    Fields: discovery or candidate ID, reviewer ID, domain, verdict,
+    detailed notes, novelty assessment, significance assessment, timestamp.
+
+  Calibration events:
+    Every threshold or weight adjustment made to any module.
+    Fields: module name, parameter name, old value, new value, reason,
+    supporting data reference, timestamp.
+
+LEDGER QUERY INTERFACE:
+  The Ledger exposes a read interface (not an update interface) supporting:
+    - Get all discoveries (filterable by domain, tier, verified status)
+    - Get discovery by ID
+    - Get all candidates from a seed
+    - Get pipeline statistics for a time range
+    - Get all records linked to a discovery (full provenance chain)
+    - Export full Ledger to JSON
+
+================================================================================
+10. MODULE 7: CARTOGRAPHER
+================================================================================
+
+PURPOSE:
+  Builds and maintains a map of explored idea space. Uses this map to
+  identify under-explored regions and generate targeted seed suggestions.
+  Flags ideas that are blocking further progress in a domain.
+
+EXPLORATION MAP:
+  The Cartographer maintains a geometric representation of explored idea
+  space using the fingerprint vectors of all candidates and discoveries.
+
+  The map is organized as clusters: groups of semantically similar ideas
+  that have been explored. Each cluster has:
+    - A centroid (average vector of all fingerprints in the cluster)
+    - A density (number of candidates and discoveries in the cluster)
+    - A quality score (average sieve score of candidates in the cluster)
+    - A discovery rate (discoveries per candidate in the cluster)
+    - A domain label (which domain most candidates in the cluster belong to)
+
+  The map updates after every excavation cycle.
+
+UNDER-EXPLORED REGION IDENTIFICATION:
+  A region of idea space is under-explored if:
+    - It is close to an existing cluster but has low density, or
+    - It is adjacent to a high-quality cluster (suggesting nearby fertile
+      territory), or
+    - The Lexical analysis of existing discoveries suggests adjacent concepts
+      that have not yet been explored as seeds
+
+SEED GENERATION FROM MAP:
+  The Cartographer generates seed suggestions by:
+    1. Identifying the centroid of under-explored regions
+    2. Finding the nearest high-quality explored cluster
+    3. Generating a seed that bridges from the explored cluster toward
+       the unexplored region
+    4. Verifying the generated seed is different enough from existing seeds
+
+BOTTLENECK FLAGGING:
+  A bottleneck is a discovery or concept that appears to block progress
+  in a field — other explorations seem to depend on resolving this idea
+  before they can proceed.
+
+  Bottleneck signals:
+    - Multiple separate excavation runs converge on similar ideas
+      that reference the same unresolved question
+    - Sieve evaluations frequently cite the same open question as a
+      prerequisite for significance
+    - Domain verifier notes that translation requires resolving the same
+      undefined concept
+
+  Bottleneck discoveries are:
+    - Flagged with bottleneck status in the Ledger
+    - Given priority as seeds for subsequent excavation
+    - Highlighted in reports as high-value targets
+
+TERRITORY STATISTICS:
+  The Cartographer produces the following statistics on demand:
+    - Total distinct conceptual regions explored
+    - Densest region (most excavated area, potentially over-saturated)
+    - Sparsest high-quality adjacent region (highest exploration priority)
+    - Discovery rate by region (where has the system found the most?)
+    - Cross-domain connection map (ideas that span multiple domains)
+    - Bottleneck list with estimated blocking impact
+    - Seed fertility leaderboard (which seeds produced the most discoveries)
+
+================================================================================
+11. MODULE 8: REPORTING ENGINE
+================================================================================
+
+PURPOSE:
+  Produces structured reports of all system activity on demand.
+  Reports are the primary output that human reviewers interact with.
+
+REPORT TYPES:
+
+  Discovery Report:
+    Generated on demand or after each cycle.
+    Contents:
+      - All discoveries from the period, grouped by domain
+      - For each discovery: full statement, formal statement, seed,
+        sieve score, verification result, tier, timestamp
+      - Provenance chain: seed → candidate → discovery
+      - Suggested related discoveries from the Ledger
+      - Human review status
+
+  Pipeline Statistics Report:
+    Generated after each cycle.
+    Contents:
+      - Candidates generated
+      - Fingerprint collisions detected
+      - Sieve pass rate by domain
+      - Domain verification pass rate by domain and classification
+      - Discovery rate (discoveries / candidates)
+      - Cost estimate for the cycle
+      - Time breakdown by module
+
+  Exploration Map Report:
+    Generated weekly or on demand.
+    Contents:
+      - Visual description of explored territory (text-based cluster map)
+      - Under-explored regions identified
+      - Bottlenecks flagged
+      - Seed recommendations from Cartographer
+      - Domain balance statistics
+
+  Seed Fertility Report:
+    Generated monthly or on demand.
+    Contents:
+      - All seeds ranked by fertility score
+      - Best performing seeds per domain
+      - Exhausted seeds
+      - AI-generated vs human seed performance comparison
+
+  Human Review Queue:
+    Generated on demand for domain experts.
+    Contents:
+      - All discoveries awaiting human review
+      - Sorted by sieve score descending
+      - For each: full text, formal statement, verification result,
+        suggested related work from literature databases
+      - Review form fields: novel (yes/no/uncertain), significant (1-5),
+        notes, suggested follow-up seeds
+
+================================================================================
+12. DATA MODELS (ALL DOMAINS)
+================================================================================
+
+This section defines the canonical data structures used throughout the system.
+These are the records that flow between modules and are stored in the Ledger.
+
+SEED:
+  id: unique identifier (UUID)
+  text: the seed concept text
+  type: human | ai-generated | derivative
+  domain: mathematics | science | philosophy | cross-domain
+  submitter_id: identifier of human submitter (if type = human)
+  parent_discovery_id: ID of discovery that spawned this seed (if derivative)
+  submitted_at: timestamp
+  status: queued | active | exhausted | retired
+  fertility_score: float 0.0-1.0 (null until computed)
+  cycles_run: integer count
+  candidates_produced: integer count
+  discoveries_attributed: integer count
+
+CANDIDATE:
+  id: unique identifier (UUID)
+  seed_id: reference to parent seed
+  domain: mathematics | science | philosophy | cross-domain
+  temperature: float (the temperature used in generation)
+  prompt_variant: string (name of prompt variant used)
+  model: string (model identifier)
+  raw_text: full text output from model
+  core_claim: extracted core claim (structured field)
+  formal_statement: extracted formal statement (structured field)
+  intuition: extracted intuition text
+  connections: list of identified connections to existing knowledge
+  self_assessed_novelty: model's own novelty estimate
+  identified_weaknesses: model's own weaknesses
+  generated_at: timestamp
+
+FINGERPRINT:
+  hash: SHA-256 hex string
+  candidate_id: reference to candidate
+  compressed_vector: array of floats (128 dimensions)
+  full_vector: array of floats (full embedding dimension)
+  embedding_model: string (model identifier)
+  compression_model_version: string (version of reduction model)
+  created_at: timestamp
+
+COLLISION_EVENT:
+  id: unique identifier
+  query_fingerprint_hash: the fingerprint being checked
+  matched_fingerprint_hash: the fingerprint it collided with (if any)
+  similarity_score: float 0.0-1.0
+  classification: NOVEL | NEAR_DUPLICATE | EXACT_DUPLICATE
+  checked_at: timestamp
+
+SIEVE_EVALUATION:
+  id: unique identifier
+  candidate_id: reference to candidate
+  coherence_score: float 0.0-1.0
+  coherence_reasoning: text
+  novelty_score: float 0.0-1.0
+  novelty_reasoning: text
+  novelty_sources_checked: list of database names queried
+  significance_score: float 0.0-1.0
+  significance_reasoning: text
+  fertility_score: float 0.0-1.0
+  fertility_reasoning: text
+  formalizability_score: float 0.0-1.0
+  formalizability_reasoning: text
+  final_score: float 0.0-1.0 (weighted sum)
+  passed: boolean
+  fail_reason: text (if not passed)
+  evaluated_at: timestamp
+
+LEAN_VERIFICATION (mathematics only):
+  id: unique identifier
+  candidate_id: reference to candidate
+  lean_code: the generated Lean 4 code
+  translation_confidence: float 0.0-1.0
+  translation_attempt_number: integer (1-3)
+  lean_stdout: full output from Lean checker
+  lean_stderr: full error output from Lean checker
+  result: VERIFIED | KNOWN | UNTRANSLATABLE | MALFORMED | TIMEOUT
+  execution_time_ms: integer
+  verified_at: timestamp
+
+SCIENCE_VERIFICATION (science only):
+  id: unique identifier
+  candidate_id: reference to candidate
+  extracted_predictions: list of strings
+  falsification_tests: list of strings
+  literature_sources_checked: list of database names
+  contradicting_results: list of citation strings
+  result: VERIFIED | CONTRADICTED | REDUNDANT | UNFALSIFIABLE | DISCONNECTED
+  reasoning: text
+  verified_at: timestamp
+
+PHILOSOPHY_VERIFICATION (philosophy only):
+  id: unique identifier
+  candidate_id: reference to candidate
+  reconstructed_premises: list of strings
+  reconstructed_conclusion: string
+  validity_assessment: text
+  consistency_assessment: text
+  term_consistency_assessment: text
+  closest_existing_positions: list of named positions
+  distinguishing_features: text
+  result: VERIFIED | INVALID | INCONSISTENT | EQUIVOCATING | RESTATEMENT |
+          UNSTRUCTURED
+  reasoning: text
+  verified_at: timestamp
+
+DISCOVERY:
+  id: unique identifier (UUID)
+  candidate_id: reference to candidate
+  fingerprint_hash: reference to fingerprint
+  seed_id: reference to originating seed
+  domain: mathematics | science | philosophy | cross-domain
+  tier: BRONZE | SILVER | GOLD | PLATINUM | GENESIS (and _UNVERIFIED variants)
+  statement: full natural language statement
+  formal_statement: domain-appropriate formal statement
+  sieve_score: float 0.0-1.0
+  verification_result: result from domain verifier
+  lean_verified: boolean (mathematics only, else null)
+  human_reviewed: boolean
+  human_reviewer_id: identifier (if reviewed)
+  human_verdict: NOVEL | KNOWN | UNCERTAIN | REJECTED (if reviewed)
+  human_notes: text (if reviewed)
+  created_at: timestamp
+
+HUMAN_REVIEW:
+  id: unique identifier
+  target_id: discovery or candidate ID being reviewed
+  target_type: discovery | candidate
+  reviewer_id: identifier
+  domain: mathematics | science | philosophy
+  verdict: NOVEL | KNOWN | UNCERTAIN | REJECTED
+  novelty_notes: text
+  significance_rating: integer 1-5
+  suggested_related_work: list of citation strings
+  suggested_follow_up_seeds: list of seed texts
+  reviewed_at: timestamp
+
+================================================================================
+13. PIPELINE FLOW
+================================================================================
+
+COMPLETE PIPELINE (one seed, one cycle):
+
+  INPUT: One seed concept, domain, number of candidates requested
+
+  STAGE 1 — EXCAVATION
+    For each of N candidates to generate:
+      Select temperature and prompt variant combination
+      Call language model with seed + domain + variant prompt
+      Parse and structure the raw output
+      Validate required fields present
+      Store raw candidate to Ledger immediately
+    Output: List of N structured candidates
+
+  STAGE 2 — FINGERPRINTING
+    For each candidate:
+      Generate semantic embedding (local, no API call)
+      Reduce dimensions
+      Compute SHA-256 hash
+      Query Ledger for all stored fingerprints
+      Compute cosine similarity against all stored fingerprints
+      Classify: NOVEL / NEAR_DUPLICATE / EXACT_DUPLICATE
+      Store fingerprint and collision event to Ledger
+      If EXACT_DUPLICATE: mark candidate as duplicate, remove from pipeline
+      If NEAR_DUPLICATE: mark candidate with warning, continue in pipeline
+    Output: List of candidates minus exact duplicates, with collision metadata
+
+  STAGE 3 — SIEVE
+    For each non-duplicate candidate:
+      Run coherence evaluation
+      If coherence score < 0.50: fail, log, remove from pipeline, stop
+      Run external literature novelty check
+      If novelty score < 0.30: fail, log, remove from pipeline, stop
+      Run significance evaluation
+      Run fertility evaluation
+      Run formalizability evaluation
+      Compute weighted final score
+      If final score < threshold: fail, log, remove from pipeline
+      Store full sieve evaluation to Ledger
+    Output: List of candidates that passed all sieve dimensions
+
+  STAGE 4 — DOMAIN VERIFICATION
+    For each sieve-passing candidate:
+      Determine domain
+      Route to appropriate domain verifier:
+        Mathematics → Lean 4 verification pipeline (up to 3 attempts)
+        Science → Falsifiability and consistency pipeline
+        Philosophy → Logical validity and novelty pipeline
+      Store complete verification record to Ledger
+    Output: List of candidates with verification results
+
+  STAGE 5 — DISCOVERY MINTING
+    For each candidate with a non-failure verification result:
+      Assign discovery tier based on sieve score and verification result
+      Create Discovery record in Ledger
+      Generate derivative seeds from this discovery
+      Add derivative seeds to Seed Management queue
+      Update Cartographer with new discovery
+    Output: List of new Discovery records
+
+  STAGE 6 — CARTOGRAPHER UPDATE
+    Update exploration map with all candidates from this cycle
+    Recompute cluster assignments
+    Identify new under-explored regions
+    Generate new seed suggestions
+    Update bottleneck flags if new evidence
+    Store updated territory statistics
+
+  STAGE 7 — REPORTING
+    Generate cycle summary report
+    Update discovery report
+    Flag discoveries ready for human review
+    Output cycle statistics
+
+FAILURE HANDLING:
+  Every failure at every stage is:
+    - Logged with full details to the Ledger
+    - Counted in pipeline statistics
+    - Analyzed in aggregate to identify systematic issues
+
+  No failure causes the pipeline to stop processing other candidates.
+  Failures of individual candidates are isolated.
+
+  If a module itself fails (not a candidate failure but a system failure):
+    - Log the system error with full context
+    - Halt processing of that module for this cycle
+    - Attempt restart once
+    - If restart fails, complete the cycle without that module
+      and flag the cycle as incomplete in statistics
+
+================================================================================
+14. CONFIGURATION PARAMETERS
+================================================================================
+
+All parameters are configurable without code changes.
+All changes to configuration are logged as calibration events in the Ledger.
+
+EXCAVATOR PARAMETERS:
+  candidates_per_cycle_per_seed: integer, default 50
+  temperatures: list of floats, default [0.3, 0.7, 1.0, 1.2]
+  max_tokens_per_candidate: integer, default 2000
+  universal_prompt_variants: list of variant names
+  domain_specific_variants_per_domain: integer, default 3
+  parallel_execution: boolean, default true
+  max_parallel_calls: integer, default 10 (rate limit protection)
+
+FINGERPRINT PARAMETERS:
+  embedding_model: string (must not change without migration)
+  compressed_dimensions: integer, default 128
+  similarity_threshold_near_duplicate: float, default 0.92
+  similarity_threshold_exact_duplicate: float, default 0.99
+  calibration_minimum_fingerprints: integer, default 500
+  recalibration_interval: integer, default 1000
+
+SIEVE PARAMETERS:
+  coherence_weight: float, default 0.25
+  novelty_weight: float, default 0.25
+  significance_weight: float, default 0.25
+  fertility_weight: float, default 0.15
+  formalizability_weight: float, default 0.10
+  pass_threshold: float, default 0.65
+  coherence_minimum: float, default 0.50 (hard gate)
+  novelty_minimum: float, default 0.30 (hard gate)
+  literature_databases: list of database names
+
+LEAN VERIFIER PARAMETERS:
+  lean_binary_path: string
+  lean_timeout_seconds: integer, default 120
+  max_translation_attempts: integer, default 3
+  use_server_mode: boolean, default true
+  mathlib_cache_path: string
+
+SCIENCE VERIFIER PARAMETERS:
+  literature_databases: list of database names
+  contradiction_threshold: float, default 0.80
+  minimum_predictions_required: integer, default 1
+
+PHILOSOPHY VERIFIER PARAMETERS:
+  existing_positions_database: list (curated known positions)
+  restatement_similarity_threshold: float, default 0.88
+  require_objection_response: boolean, default false (affects significance only)
+
+LEDGER PARAMETERS:
+  database_path: string
+  backup_enabled: boolean, default true
+  backup_interval_hours: integer, default 24
+  export_path: string
+
+PIPELINE PARAMETERS:
+  domains_enabled: list, default [mathematics, science, philosophy]
+  discovery_tier_thresholds: dict mapping tiers to score ranges
+  human_review_required_before_public_claim: boolean, default true
+
+================================================================================
+15. PERFORMANCE EXPECTATIONS (HONEST)
+================================================================================
+
+These numbers are realistic estimates, not targets. Do not inflate them.
+The value of the system is the quality of discoveries, not their quantity.
+
+PER CYCLE (50 candidates, 1 seed):
+  Candidates generated: 50
+  Exact duplicates filtered: 2-5 (early on; rises over time as ledger grows)
+  Near duplicates flagged: 3-8
+  Sieve failures (incoherent): 5-15
+  Sieve failures (not novel): 5-10
+  Sieve failures (low significance): 10-20
+  Sieve passes: 8-18 (16-36% pass rate)
+  Domain verification passes: 1-5 (out of sieve passes)
+  Discoveries minted per cycle: 1-5
+  Lean-verified discoveries (math): 0-1 per cycle
+
+ACROSS THREE DOMAINS:
+  Mathematics candidates tend to have higher coherence scores but
+  lower Lean verification rates due to translation difficulty.
+  Science candidates tend to have highest significance scores but
+  face more literature contradiction failures.
+  Philosophy candidates have lowest formalizability scores and
+  require the most human review.
+
+TIME PER CYCLE:
+  Excavation (parallel): 3-8 minutes
+  Fingerprinting (local, fast): 1-2 minutes
+  Sieve evaluation: 5-15 minutes
+  Domain verification: 5-60 minutes (Lean dominates)
+  Total per cycle: 15-90 minutes depending on domain mix
+
+COST PER CYCLE (API costs):
+  Excavation: $0.50-2.00
+  Sieve evaluation: $0.30-1.00
+  Domain verification translation: $0.10-0.50
+  Total per cycle: $0.90-3.50
+
+AFTER 30 DAYS OF OPERATION:
+  Realistic discovery count: 30-150 minted discoveries
+  Lean-verified mathematics: 5-20
+  Science hypotheses verified: 10-50
+  Philosophy arguments verified: 10-50
+  Human-reviewed and confirmed novel: 3-20
+  Of confirmed novel, expert calls interesting: 1-5
+
+ONE EXPERT-CONFIRMED INTERESTING DISCOVERY FROM ANY DOMAIN IS
+SUFFICIENT TO DEMONSTRATE THE SYSTEM WORKS.
+
+================================================================================
+16. RISK REGISTER
+================================================================================
+
+RISK 1: Lean translation failure rate too high to demonstrate value
+  Likelihood: High
+  Impact: Medium (only affects mathematics domain)
+  Mitigation: Accept UNTRANSLATABLE as a valid outcome category;
+              track these separately as "frontier mathematics candidates";
+              reduce dependence on Lean verification for MVP claim
+  Fallback: Demonstrate with human mathematician review instead of Lean
+
+RISK 2: All sieve passes turn out to be known results on human review
+  Likelihood: Medium
+  Impact: High (undermines core claim)
+  Mitigation: Increase diversity of seeds; lower sieve pass threshold
+              initially to see more candidates; calibrate against expert
+              review early and often
+  Fallback: Recalibrate sieve more aggressively; the system still
+            demonstrates the pipeline even if initial discoveries are weak
+
+RISK 3: Science domain candidates consistently contradicted by literature
+  Likelihood: Medium
+  Impact: Low (science is harder domain for novelty; expected)
+  Mitigation: Focus science seeds on theoretical/mechanistic claims
+              rather than empirical predictions which are more likely
+              to already be known
+  Note: This is a feature not a bug — finding contradictions is
+        scientifically valuable information
+
+RISK 4: Philosophy domain produces only restatements of existing positions
+  Likelihood: High initially
+
+================================================================================
+ADDENDUM: RESEEDING MECHANISM
+================================================================================
+Document Version: 2.1
+Addition Date: June 2026
+
+--------------------------------------------------------------------------------
+PURPOSE
+--------------------------------------------------------------------------------
+
+The reseeding mechanism allows the system to inject additional guidance
+into an active excavation run when it detects promising signals. Rather
+than completing a fixed cycle and waiting for the next one, the system
+can receive new seeds mid-flight that redirect or deepen exploration
+along a productive path.
+
+This is optional. The system operates without it. But when activated,
+it allows a human operator or the system itself to say: "this direction
+is producing interesting candidates — go deeper here before moving on."
+
+The analogy is a gold prospector who finds flecks of gold in a stream.
+Instead of moving to the next planned location, they follow the stream
+upward toward the source.
+
+--------------------------------------------------------------------------------
+WHAT TRIGGERS RESEEDING
+--------------------------------------------------------------------------------
+
+Reseeding can be triggered in three ways:
+
+TRIGGER 1 — HUMAN OPERATOR (Manual)
+  A human watching the pipeline output sees promising candidates emerging
+  and injects additional seeds to guide the excavator deeper into that
+  territory. This is purely manual, always optional, and requires
+  no automation. It is the simplest form of reseeding.
+
+  Example: The excavator is running on seed M-003 (category-theoretic
+  foundations of information theory) and produces three candidates that
+  all point toward a specific connection between entropy functors and
+  probability monads. The operator notices this convergence and injects
+  a more specific seed: "entropy as a natural transformation between
+  probability monads" to focus the next generation pass.
+
+TRIGGER 2 — AUTOMATIC SIGNAL (System-Detected)
+  The system detects a statistical signal suggesting the current seed
+  is in fertile territory and automatically generates and injects
+  a derivative reseed without human intervention.
+
+  Signal conditions that trigger automatic reseeding:
+    a) Sieve pass rate in current cycle exceeds 2x baseline rate
+    b) Three or more candidates from the current cycle share a specific
+       sub-concept not present in the original seed
+    c) Two or more candidates from the current cycle receive significance
+       scores above 0.85
+    d) A candidate from the current cycle passes domain verification
+       (this is the strongest signal — always triggers a reseed)
+
+  Automatic reseeding is conservative. It requires at least two of the
+  above conditions to fire simultaneously before generating a reseed.
+  A single high-scoring candidate is not sufficient alone.
+
+TRIGGER 3 — CARTOGRAPHER SIGNAL
+  The Cartographer detects that the current exploration is approaching
+  a previously identified high-value region and generates a bridging
+  seed to help the excavator cross into that region.
+
+  This trigger requires the Cartographer to have sufficient map data
+  to identify high-value regions — not available until after 20+
+  completed cycles. Not relevant for the earliest MVP operation.
+
+--------------------------------------------------------------------------------
+HOW RESEEDING WORKS
+--------------------------------------------------------------------------------
+
+A reseed is not a replacement of the current seed. It is an additional
+seed injected alongside the current one for a follow-up generation pass.
+
+The mechanism works as follows:
+
+STEP 1 — RESEED GENERATION
+  When a trigger fires, a reseed candidate is generated. The reseed is
+  derived from the current cycle's most promising candidates rather than
+  from the original seed alone.
+
+  Reseed generation takes as input:
+    - The original seed that is currently running
+    - The top N candidates from the current cycle (by sieve score)
+    - The specific sub-concepts that appeared repeatedly across candidates
+    - The domain verification results so far (if any)
+
+  The reseed generator identifies:
+    - What specific direction the promising candidates are pointing toward
+    - What question they collectively seem to be approaching
+    - What more focused seed would push deeper into that direction
+
+STEP 2 — RESEED VALIDATION
+  The generated reseed is checked for:
+    - Specificity: is it more focused than the original seed?
+    - Novelty: is it sufficiently different from all existing seeds?
+    - Coherence: is it a valid seed concept in the domain?
+  If it fails validation, reseeding is aborted for this cycle.
+  No reseed is better than a bad reseed.
+
+STEP 3 — RESEED INJECTION
+  The validated reseed is added to the Seed Management queue with:
+    - Priority: HIGH (above standard queue)
+    - Type: derivative
+    - Parent seed ID: the seed that triggered it
+    - Parent cycle ID: the cycle that generated it
+    - Trigger type: manual | automatic | cartographer
+    - Trigger evidence: the candidates or signals that caused the reseed
+
+STEP 4 — RESEED EXECUTION
+  The next excavation pass runs the reseed as an additional seed
+  alongside (not instead of) whatever seed was next in the queue.
+  Both generate candidates simultaneously.
+
+  If the reseed also produces high-signal output, it can itself
+  trigger further reseeding. This creates a chain of deepening
+  exploration in a productive direction.
+
+STEP 5 — RESEED CHAIN LIMIT
+  To prevent infinite recursion, each seed can only trigger a maximum
+  number of reseed generations before the chain must be manually
+  continued by a human operator.
+
+  Default maximum reseed chain depth: 3
+  That is: original seed → reseed 1 → reseed 2 → reseed 3 → stop.
+  Further exploration of that direction requires a human decision to
+  create a new seed manually.
+
+  This limit is configurable. Setting it to 1 means only one automatic
+  reseed per original seed. Setting it to 0 disables automatic reseeding
+  entirely (manual trigger still available).
+
+--------------------------------------------------------------------------------
+RESEED LINEAGE TRACKING
+--------------------------------------------------------------------------------
+
+Every reseed maintains a complete lineage chain in the Ledger:
+
+  Original seed (root)
+    └── Reseed 1 (derived from original, cycle 5)
+          └── Reseed 2 (derived from reseed 1, cycle 6)
+                └── Reseed 3 (derived from reseed 2, cycle 7)
+                      [chain limit reached — human decision required]
+
+All discoveries produced by reseeds are linked to the full lineage chain.
+Seed royalties flow through the lineage:
+  - Original seed creator earns royalties on all discoveries in the chain
+  - Each reseed contributor (if human) earns a smaller royalty on discoveries
+    produced specifically from their reseed
+
+This lineage tracking is the foundation for the future token royalty system.
+
+--------------------------------------------------------------------------------
+RESEED DATA MODEL
+--------------------------------------------------------------------------------
+
+RESEED_EVENT (additional Ledger record type):
+  id: unique identifier
+  original_seed_id: the root seed that started the chain
+  parent_seed_id: the immediate parent seed (may equal original or be a
+                  previous reseed in the chain)
+  generated_reseed_id: the new seed created by this reseed event
+  trigger_type: manual | automatic | cartographer
+  trigger_conditions: list of conditions that fired (for automatic triggers)
+  triggering_candidates: list of candidate IDs that provided the signal
+  chain_depth: integer (1 for first reseed from original, 2 for second, etc.)
+  operator_id: identifier of human operator (if trigger_type = manual)
+  created_at: timestamp
+
+--------------------------------------------------------------------------------
+CONFIGURATION PARAMETERS FOR RESEEDING
+--------------------------------------------------------------------------------
+
+reseed_enabled: boolean, default true
+  Master switch. If false, no reseeding occurs regardless of triggers.
+
+reseed_manual_enabled: boolean, default true
+  Enables human operator manual reseeding.
+
+reseed_automatic_enabled: boolean, default true
+  Enables system-detected automatic reseeding.
+
+reseed_cartographer_enabled: boolean, default false
+  Cartographer-triggered reseeding. Default false until Cartographer
+  has sufficient map data (recommend enabling after 20+ completed cycles).
+
+reseed_chain_depth_max: integer, default 3
+  Maximum automatic reseed chain length per original seed.
+
+reseed_automatic_signal_threshold: integer, default 2
+  Minimum number of signal conditions that must fire simultaneously
+  to trigger automatic reseeding.
+
+reseed_sieve_pass_rate_multiplier: float, default 2.0
+  Sieve pass rate must exceed baseline by this multiple to count
+  as a signal condition.
+
+reseed_significance_signal_threshold: float, default 0.85
+  Minimum significance score for a candidate to count toward
+  the automatic reseeding signal.
+
+reseed_significance_signal_count: integer, default 2
+  Number of candidates exceeding significance threshold required
+  to count as one signal condition.
+
+reseed_verification_pass_triggers_reseed: boolean, default true
+  A domain verification pass always triggers reseeding regardless
+  of other conditions. Recommended to keep true — a verified discovery
+  is the strongest possible signal of fertile territory.
+
+--------------------------------------------------------------------------------
+RELATIONSHIP TO OTHER MODULES
+--------------------------------------------------------------------------------
+
+The reseeding mechanism touches every module but owns none of them.
+It is a coordination layer that sits above the pipeline:
+
+  Seed Management: Reseeds are injected directly into the seed queue
+  with HIGH priority. Seed Management handles them identically to
+  normal seeds once injected.
+
+  Excavator: No changes required. The Excavator does not know whether
+  a seed is an original or a reseed. It processes all seeds identically.
+
+  Fingerprint Engine: No changes required. Reseeds may produce candidates
+  similar to their parent cycle — fingerprinting handles this naturally.
+
+  Sieve: No changes required. Reseed candidates are sieved identically
+  to all other candidates.
+
+  Domain Verifier: No changes required.
+
+  Ledger: New record type (RESEED_EVENT) added. All existing record types
+  gain an optional reseed_chain_id field for lineage tracking.
+
+  Cartographer: Minor addition — the Cartographer must be aware of
+  reseed chains when computing exploration maps to avoid double-counting
+  territory explored by a reseed as if it were independent exploration.
+
+  Reporting: Reseed chains are highlighted in discovery reports.
+  Discoveries produced through reseeding are marked with their full
+  lineage. Reseed chain performance (discoveries per chain) is tracked
+  as a separate metric.
+
+--------------------------------------------------------------------------------
+WHY THIS MATTERS FOR THE BROADER SYSTEM
+--------------------------------------------------------------------------------
+
+The reseeding mechanism is important beyond its immediate function.
+It demonstrates something about how the system learns:
+
+Without reseeding, the system explores broadly but shallowly.
+It covers a lot of territory but does not go deep on any discovery.
+
+With reseeding, the system can recognize promising territory and
+allocate more exploration resources to it before moving on.
+This mimics how scientists actually work — following promising leads
+rather than following a fixed schedule.
+
+In the future token economy, reseeding creates an important incentive:
+human operators who inject accurate, high-quality reseeds at the right
+moment will earn royalties on the discoveries produced by the chain.
+This creates a market for human judgment about which directions are
+worth pursuing — exactly the kind of human-AI collaboration that makes
+the system valuable.
+
+The reseeding mechanism is also the clearest demonstration of the
+human-in-the-loop design: the system can run autonomously, but it
+is designed to be guided. A skilled human operator who understands
+the domain can dramatically accelerate the system's progress by
+providing timely reseeds at the right moments.
+
+This conversation is itself an example of reseeding. The original
+seed was "AI output space and mining for ideas." When that produced
+interesting outputs, you injected more specific seeds: "Carthaginian
+methodology," "crypto coin structure," "verifiable domains only."
+Each injection deepened the exploration and produced more valuable output.
+The Hanno Protocol was found through a reseed chain.
+
+================================================================================
+END OF ADDENDUM
+================================================================================
+
+================================================================================
+ADDENDUM 2: SOLID SEEDS
+================================================================================
+Document Version: 2.2
+Addition Date: June 2026
+
+--------------------------------------------------------------------------------
+PURPOSE
+--------------------------------------------------------------------------------
+
+A solid seed is a seed submitted by a domain expert who attaches their
+professional identity and credentials to it. Unlike standard seeds which
+are anonymous directions for exploration, a solid seed is a signed
+intellectual pitch — an expert saying publicly: "I believe this direction
+is worth mining, here is my reasoning and my credentials, and I am willing
+to share the discovery rewards with miners who work it."
+
+Solid seeds create a market for expert knowledge that did not previously
+exist. A researcher who has spent years identifying a promising unexplored
+direction in their field can now monetize that knowledge by packaging it
+as a solid seed, attracting miners to explore it, and earning a share of
+whatever is discovered.
+
+The expert does not need to do the mining. The miners do not need to know
+the domain deeply. Each brings what the other lacks. The solid seed is
+the contract between them.
+
+--------------------------------------------------------------------------------
+HOW SOLID SEEDS DIFFER FROM STANDARD SEEDS
+--------------------------------------------------------------------------------
+
+STANDARD SEED:
+  - Anonymous or pseudonymous
+  - Short text description of a direction
+  - No attached credentials
+  - Default royalty split (defined by protocol)
+  - No miner commitment mechanism
+  - Miners have no information about why this direction is promising
+
+SOLID SEED:
+  - Attached to a real professional identity
+  - Full research pitch with supporting documentation
+  - Verified credentials in the relevant domain
+  - Custom royalty split defined by the seeder
+  - Miners actively choose to work it based on the pitch
+  - Miners have detailed expert context for why this direction is promising
+
+This difference matters for mining quality. A miner working a solid seed
+has expert context that shapes how they configure the excavator, which
+prompt variants they emphasize, and how they interpret candidate outputs.
+Informed mining produces better candidates than uninformed mining.
+
+--------------------------------------------------------------------------------
+SOLID SEED STRUCTURE
+--------------------------------------------------------------------------------
+
+A solid seed consists of the following components:
+
+COMPONENT 1 — CORE SEED TEXT
+  The seed concept itself. Same format as a standard seed but expected
+  to be more precise and more targeted given the expert's domain knowledge.
+  Length: 50-500 words.
+  Must identify: the specific direction, the domain, the sub-domain,
+  and the type of discovery being sought (conjecture, hypothesis,
+  framework, argument).
+
+COMPONENT 2 — EXPERT PITCH
+  A structured argument for why this direction is worth mining.
+  Required sections:
+    a) What is currently known: summary of the existing literature
+       relevant to this seed direction
+    b) What is missing: precise identification of the gap, question,
+       or unexplored territory
+    c) Why this gap matters: significance of finding something here
+    d) Why AI mining might find it: reasoning for why the excavation
+       approach is well-suited to this specific direction
+    e) What a discovery would look like: description of what a valid
+       discovery in this direction would need to contain or prove
+  Length: 200-2000 words.
+
+COMPONENT 3 — SUPPORTING DOCUMENTATION
+  Attached documents that substantiate the pitch:
+    - Relevant published papers (authored by the seeder or key literature)
+    - The seeder's CV or academic profile
+    - Any preliminary work, notes, or partial results the seeder has
+      that informed the seed
+    - Links to relevant databases, datasets, or resources miners
+      should be aware of
+  Format: PDF attachments stored off-chain, referenced by hash on-chain.
+  Minimum requirement: at least one supporting document.
+  The CV is not optional — it is the primary credentialing mechanism.
+
+COMPONENT 4 — ROYALTY DECLARATION
+  The seeder's declared share of all discovery NFTs produced from this seed.
+  Format: a single percentage between 10% and 50%.
+  This declaration is immutable once the solid seed is published.
+  The remaining percentage goes to miners according to the protocol's
+  miner allocation rules.
+
+  Minimum miner share: 50%
+  Rationale: Below 50% miner share, miners have insufficient incentive
+  to work the seed competitively. The market will naturally push seeders
+  toward generous splits — a seeder offering 80% to miners will attract
+  more compute than one offering 50%.
+
+  Maximum seeder share: 50%
+  This is a hard protocol limit, not a suggestion.
+
+COMPONENT 5 — SEEDER IDENTITY
+  The seeder's verified professional identity:
+    - Full legal name
+    - Primary institutional affiliation (if any)
+    - Domain of expertise (must match the seed domain)
+    - Contact information (email minimum)
+    - ORCID identifier (strongly recommended for academic researchers)
+    - Link to public academic or professional profile
+
+  Identity is not anonymized. Solid seeds are public claims by named
+  individuals. This is the source of their credibility and the reason
+  miners trust them. Anonymous solid seeds are not permitted.
+
+COMPONENT 6 — RESEEDING RIGHTS DECLARATION
+  The seeder declares whether they will provide active guidance through
+  reseeds during the mining process:
+    - Passive: seeder submits the seed and no further involvement
+    - Active: seeder commits to reviewing promising candidates and
+      injecting reseeds when the system is on a productive path
+
+  Active seeders earn a bonus royalty percentage on discoveries produced
+  from their reseeds (in addition to their base royalty from the original
+  solid seed). This bonus is small (suggested: 5% of miner share) to
+  incentivize active guidance without over-rewarding it.
+
+  Active involvement is a commitment, not a right. If a seeder declares
+  active but does not provide reseeds within a defined response window,
+  they revert to passive status for that mining run.
+
+--------------------------------------------------------------------------------
+HOW MINERS INTERACT WITH SOLID SEEDS
+--------------------------------------------------------------------------------
+
+Solid seeds are publicly listed in the seed marketplace (future component).
+For MVP, they are presented to operators through the CLI and reporting system.
+
+MINER DECISION PROCESS:
+  A miner reviewing a solid seed evaluates:
+    1. The seeder's credentials and track record
+    2. The quality of the expert pitch
+    3. The royalty split (is the miner share competitive?)
+    4. The supporting documentation (do the papers support the direction?)
+    5. What the seeder says a discovery would look like (is it achievable?)
+    6. Whether they have the domain knowledge to configure the excavator well
+
+  If the miner chooses to work the solid seed, they explicitly accept
+  the royalty terms before their compute counts toward it.
+
+  Miners can work multiple solid seeds simultaneously. There is no
+  exclusivity requirement.
+
+MINER CONFIGURATION ADVANTAGE:
+  When working a solid seed, miners have access to the full expert pitch
+  and supporting documentation. This allows them to:
+    - Configure prompt variants to emphasize what the expert identified
+      as the most promising angle
+    - Use the seeder's referenced papers as context in prompts
+    - Understand what a passing candidate should look like according
+      to the expert
+    - Recognize near-discoveries that a general sieve might miss
+
+  This informed mining is a significant quality advantage over standard
+  seed mining. The expert's knowledge flows into the excavation process.
+
+--------------------------------------------------------------------------------
+ROYALTY DISTRIBUTION MECHANICS
+--------------------------------------------------------------------------------
+
+When a discovery is minted from a solid seed, the NFT ownership is
+distributed as follows:
+
+  Seeder share: as declared (10%-50%)
+  Miner share: remainder after seeder and protocol shares
+  Protocol treasury: fixed 5% (taken from miner share, not seeder share)
+  Validator share: taken from miner share per standard validation rules
+
+EXAMPLE — Seeder declares 30%:
+  Seeder: 30%
+  Protocol treasury: 5%
+  Validators: 10% (split among validators per standard rules)
+  Miners: 55% (split among contributing miners)
+
+EXAMPLE — Seeder declares 10% (generous):
+  Seeder: 10%
+  Protocol treasury: 5%
+  Validators: 10%
+  Miners: 75%
+
+EXAMPLE — Seeder declares 50% (maximum):
+  Seeder: 50%
+  Protocol treasury: 5%
+  Validators: 10%
+  Miners: 35%
+
+MINER SHARE DISTRIBUTION (among multiple miners):
+  If one miner's candidate produces the discovery: that miner gets
+  100% of the miner share.
+
+  If multiple miners contributed candidates that were combined or
+  are indistinguishable in producing the discovery: miner share is
+  split equally among contributing miners.
+
+  If many miners worked the seed but only one produced the discovery:
+  the discovering miner gets the full miner share. Other miners receive
+  nothing from this discovery but their compute costs are their own risk.
+  This is intentional — it creates competitive mining dynamics that
+  increase total compute applied to promising seeds.
+
+SEEDER ROYALTIES ACROSS MULTIPLE DISCOVERIES:
+  The seeder earns their declared percentage on every discovery minted
+  from their solid seed. There is no cap on total earnings.
+
+  A solid seed that produces 20 discoveries over two years of mining
+  earns the seeder their declared percentage on all 20 NFTs.
+
+  This is the core incentive for experts to produce high-quality solid
+  seeds. Fertile seeds compound in value over time.
+
+--------------------------------------------------------------------------------
+SOLID SEED LIFECYCLE
+--------------------------------------------------------------------------------
+
+STATE 1 — DRAFT
+  Seeder is preparing the solid seed. Not visible to miners.
+  All components can be modified freely.
+
+STATE 2 — SUBMITTED
+  Seeder has submitted the solid seed for basic validation.
+  System checks: all required fields present, documentation attached,
+  royalty within bounds, identity information complete.
+  This is automated validation only — no human review of content yet.
+
+STATE 3 — PUBLISHED
+  Solid seed passes basic validation and becomes visible to miners.
+  Royalty terms are now immutable — the seeder cannot change their
+  declared percentage after publication.
+  Core seed text is immutable after publication.
+  Supporting documentation can be supplemented (not removed) after
+  publication — seeders can add papers but not withdraw them.
+
+STATE 4 — ACTIVE
+  At least one miner has accepted the terms and is running the seed.
+  The seeder is notified when their seed becomes active.
+  If the seeder declared active reseeding involvement, their response
+  window begins when the seed reaches ACTIVE state.
+
+STATE 5 — PRODUCING
+  The seed has produced at least one discovery.
+  The seeder receives notification of each discovery and their NFT
+  share allocation.
+
+STATE 6 — EXHAUSTED
+  Three consecutive cycles with no sieve passes.
+  The seed is no longer actively mined but remains in the system.
+  Seeder can submit a revised version as a new solid seed referencing
+  this one, but cannot reactivate the exhausted seed.
+
+STATE 7 — RETIRED
+  Seeder voluntarily withdraws the seed before any discoveries are
+  made. After retirement, the seed is archived but no longer mineable.
+  Once any discovery has been made from the seed, retirement is not
+  permitted — the seed remains in the system permanently.
+
+--------------------------------------------------------------------------------
+SEEDER REPUTATION SYSTEM
+--------------------------------------------------------------------------------
+
+Seeders build reputation over time based on the fertility of their seeds.
+
+REPUTATION METRICS:
+  - Total solid seeds published
+  - Total solid seeds that produced at least one discovery
+  - Total discoveries produced across all solid seeds
+  - Average sieve pass rate across all solid seeds (relative to baseline)
+  - Expert review ratings: when discoveries from their seeds are human-
+    reviewed, the reviewer can rate the quality of the solid seed pitch
+    separately from the discovery itself
+  - Seeder fertility score: discoveries produced per solid seed published
+
+REPUTATION EFFECTS:
+  High-reputation seeders:
+    - Their solid seeds appear higher in the miner queue
+    - They earn a small reputation bonus on their NFT share
+      (suggested: up to 5% additional, protocol-funded)
+    - They gain access to cross-seed analytics showing how their seeds
+      perform relative to similar seeds from other experts
+
+  Low-reputation seeders:
+    - Their solid seeds appear lower in the miner queue
+    - After 3 consecutive solid seeds that produce zero discoveries,
+      they enter a probationary period where their seeds are flagged
+
+  Note: Reputation is earned, never purchased. There is no mechanism
+  to buy a higher reputation score.
+
+FIRST SOLID SEED HANDLING:
+  A seeder's first solid seed has no reputation signal.
+  The quality of their CV, papers, and pitch must carry the weight.
+  This is intentional — the system should be accessible to excellent
+  researchers who are new to Hanno, not only those with established
+  track records in the system.
+
+--------------------------------------------------------------------------------
+RELATIONSHIP TO RESEEDING
+--------------------------------------------------------------------------------
+
+Solid seeds and the reseeding mechanism interact in an important way:
+
+When a solid seed is in ACTIVE state and the system detects promising
+signals (any reseeding trigger condition), the system first asks:
+has the seeder declared active involvement?
+
+  If YES (active seeder):
+    System notifies the seeder of the promising signal.
+    Seeder has a defined response window to review the candidates
+    and submit a manual reseed.
+    If seeder responds within the window: their reseed is injected
+    with HIGH priority and earns the active bonus royalty.
+    If seeder does not respond within the window: automatic reseeding
+    proceeds as normal per the reseeding mechanism spec.
+
+  If NO (passive seeder):
+    Automatic reseeding proceeds immediately per the reseeding
+    mechanism spec.
+    Derivative reseeds generated from a solid seed inherit the
+    seeder's royalty at a reduced rate (50% of the original declared
+    rate) because the derivative seed is generated by the system,
+    not the original seeder.
+
+EXAMPLE — Active seeder, 30% declared rate:
+  Original solid seed: seeder earns 30% of discoveries
+  Derivative reseed (seeder provides): seeder earns 30% + 5% bonus
+  Derivative reseed (system generates, seeder did not respond):
+    seeder earns 15% of discoveries from that reseed
+
+--------------------------------------------------------------------------------
+SEEDER REPUTATION PORTABILITY
+--------------------------------------------------------------------------------
+
+A seeder's academic reputation exists before Hanno. The system should
+acknowledge this rather than pretend it does not.
+
+For the first solid seed from a new seeder, the quality of their CV
+and papers is used as a proxy for expected seed quality:
+
+  Signal: h-index, citation count, publication count in the domain
+  Signal: institutional affiliation prestige
+  Signal: alignment between CV expertise and seed domain
+  Signal: quality of supporting papers (cited, peer-reviewed, recent)
+
+These signals do not give a reputation score directly. They are
+displayed to miners alongside the seed so miners can make informed
+decisions. The market translates external academic reputation into
+mining attention without the system needing to formalize it.
+
+Over time, Hanno reputation replaces or augments external reputation
+as the primary signal for miner attention.
+
+--------------------------------------------------------------------------------
+WHAT THIS CREATES
+--------------------------------------------------------------------------------
+
+The solid seed mechanism creates something that did not exist before:
+
+A MARKET FOR EXPERT DIRECTION
+
+Currently, a researcher who identifies a promising unexplored direction
+in their field has three options:
+  a) Pursue it themselves (limited by their own time and resources)
+  b) Write a grant proposal (slow, expensive, success not guaranteed)
+  c) Do nothing with the insight
+
+The solid seed creates a fourth option:
+  d) Package the insight as a solid seed, attract compute from miners,
+     and earn royalties on whatever is found — indefinitely
+
+This is not consulting. The researcher does not work for hire.
+This is not publishing. The researcher does not give the idea away.
+This is equity in exploration. The researcher retains ownership of
+the direction and earns from results.
+
+For miners, solid seeds are a quality signal in a noisy market.
+A solid seed from a respected researcher in a domain is evidence
+that the direction is worth exploring — the researcher has skin in
+the game through their reputation and through waiting for results.
+
+The entire academic incentive structure currently misaligns individual
+researchers from the collective progress of knowledge. Researchers
+are rewarded for publishing, not for identifying what should be
+explored next. Solid seeds begin to correct this misalignment by
+rewarding expert direction separately from expert execution.
+
+--------------------------------------------------------------------------------
+DATA MODEL ADDITIONS
+--------------------------------------------------------------------------------
+
+SOLID_SEED (extends SEED record):
+  id: unique identifier (inherits from SEED)
+  seed_type: solid (distinguishes from standard seeds)
+  seeder_name: full legal name
+  seeder_affiliation: institutional affiliation or independent
+  seeder_domain: declared area of expertise
+  seeder_contact: email address
+  seeder_orcid: ORCID identifier (optional but recommended)
+  seeder_profile_url: link to public academic or professional profile
+  expert_pitch: full pitch text (all five required sections)
+  supporting_documents: list of document records (hash + metadata)
+  declared_royalty_percent: integer 10-50
+  reseeding_commitment: passive | active
+  active_reseed_response_window_hours: integer (if active, default 48)
+  published_at: timestamp (null until state = PUBLISHED)
+  reputation_score: float (computed, updated continuously)
+  total_discoveries_produced: integer (updated as discoveries mint)
+  total_active_mining_cycles: integer (updated as miners work seed)
+
+SOLID_SEED_DOCUMENT:
+  id: unique identifier
+  solid_seed_id: reference to solid seed
+  document_type: cv | paper | preliminary_work | dataset | other
+  title: document title
+  authors: list of strings
+  year: integer (if paper)
+  doi: string (if paper, optional)
+  storage_hash: cryptographic hash of document content
+  storage_location: off-chain storage reference
+  added_at: timestamp
+
+SOLID_SEED_MINER_COMMITMENT:
+  id: unique identifier
+  solid_seed_id: reference to solid seed
+  miner_id: identifier of miner committing
+  accepted_royalty_terms: boolean (must be true to record)
+  accepted_at: timestamp
+  cycles_run: integer (updated as miner works the seed)
+  discoveries_attributed: integer (updated as miner produces discoveries)
+
+SEEDER_NOTIFICATION:
+  id: unique identifier
+  solid_seed_id: reference to solid seed
+  seeder_id: seeder identifier
+  notification_type: seed_active | reseed_signal | discovery_minted |
+                     seed_exhausted
+  trigger_data: JSON (candidates, signals, or discovery that triggered)
+  response_window_expires_at: timestamp (for reseed signal notifications)
+  seeder_responded: boolean
+  response_at: timestamp (if responded)
+  response_content: text or seed ID (if responded with reseed)
+
+--------------------------------------------------------------------------------
+CONFIGURATION PARAMETERS FOR SOLID SEEDS
+--------------------------------------------------------------------------------
+
+solid_seeds_enabled: boolean, default true
+seeder_minimum_royalty_percent: integer, default 10
+seeder_maximum_royalty_percent: integer, default 50
+protocol_treasury_percent: integer, default 5
+validator_percent: integer, default 10
+active_reseed_response_window_hours: integer, default 48
+active_reseed_bonus_percent: float, default 5.0
+derivative_reseed_royalty_reduction: float, default 0.5
+minimum_supporting_documents: integer, default 1
+cv_required: boolean, default true
+orcid_required: boolean, default false
+seeder_probation_consecutive_empty_seeds: integer, default 3
+
+================================================================================
+END OF ADDENDUM 2
+================================================================================

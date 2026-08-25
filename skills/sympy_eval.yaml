@@ -1,0 +1,23 @@
+# DISABLED BY DEFAULT — read before flipping `enabled`.
+#
+# This skill runs model-written SymPy/Python code via exec(). Enabling it is
+# consenting to arbitrary code execution by the mining model on this machine,
+# contained only by the timeout below and any sandboxing you provide. That is
+# a real, deliberate miner decision. If you want a "Maple-style" CAS the model
+# can use to test equations, factor expressions, solve systems, or search for
+# counterexamples numerically: pip install sympy, then set enabled: true.
+name: sympy_eval
+description: >
+  Execute a SymPy (Python computer-algebra) script and return whatever it
+  prints. Use this to actually TEST mathematical ideas: simplify or verify an
+  identity, solve an equation, factor integers, check a formula on hundreds of
+  values in a loop, or search for a counterexample. Write a complete script
+  that prints its findings — e.g.
+  "import sympy; n = sympy.symbols('n'); print(sympy.simplify(...))" or a loop
+  that prints every n < 1000 violating your claim.
+command: ["python3", "skills/scripts/sympy_eval.py"]
+input_mode: stdin
+input_description: "A complete Python/SymPy script; its printed output is returned."
+timeout_seconds: 30
+max_output_chars: 4000
+enabled: false

@@ -1,0 +1,23 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+data/*.db
+data/exports/
+data/secrets.local.yaml
+data/mathlib_cache/
+config/local.yaml
+logs/*.log
+.env
+*.egg-info/
+.pytest_cache/
+
+# scratch/debug dumps from manual runs -- not part of the codebase
+trace.json
+trace.txt
+test2.json
+seed_candidates_dump.txt
+seed_candidates_dump-old.txt
+
+# local IDE/agent settings -- machine-specific, not project source
+.claude/
