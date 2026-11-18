@@ -6,6 +6,7 @@ tests exercise semantic similarity, not string matching, on purpose:
 paraphrases of the same idea must collide even with near-zero lexical
 overlap.
 """
+
 import pytest
 
 from hanno.config import FingerprintConfig
@@ -15,13 +16,15 @@ from hanno.ledger.repository import Ledger
 # Small model, downloaded once and cached by sentence-transformers/HF hub.
 TEST_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
+pytestmark = pytest.mark.embeddings
+
 
 @pytest.fixture
 def ledger(tmp_path):
-    l = Ledger.connect(tmp_path / "test.db")
-    l.init_schema()
-    yield l
-    l.close()
+    db = Ledger.connect(tmp_path / "test.db")
+    db.init_schema()
+    yield db
+    db.close()
 
 
 @pytest.fixture
@@ -40,7 +43,8 @@ def engine(ledger):
     # the 0.8-0.85 range rather than 0.92+ — a larger production model
     # would be calibrated separately.
     config = FingerprintConfig(
-        embedding_model=TEST_MODEL, compressed_dimensions=384,
+        embedding_model=TEST_MODEL,
+        compressed_dimensions=384,
         similarity_threshold_near_duplicate=0.75,
     )
     return FingerprintEngine(ledger, config)
@@ -71,8 +75,12 @@ def test_paraphrase_is_near_or_exact_duplicate_despite_different_wording(engine)
 
 
 def test_unrelated_concepts_are_novel(engine):
-    engine.process("seed", "seed-1", "Investigate counterexamples to the generalized Riemann hypothesis.")
-    result = engine.process("seed", "seed-2", "Propose a falsifiable mechanism for dark matter self-interaction.")
+    engine.process(
+        "seed", "seed-1", "Investigate counterexamples to the generalized Riemann hypothesis."
+    )
+    result = engine.process(
+        "seed", "seed-2", "Propose a falsifiable mechanism for dark matter self-interaction."
+    )
     assert result.classification == "NOVEL"
 
 

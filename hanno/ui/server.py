@@ -7,9 +7,11 @@ running, the same JSON shape `hanno trace --json` produces (see
 hanno/ledger/export.py), rendered by the same mind-map viewer ported from
 hanno/viz/trace_mindmap.html.
 """
+
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -17,6 +19,8 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
+from starlette.responses import Response
+from starlette.types import Scope
 
 from hanno.config import HannoConfig, diff_and_log_calibration, load_config
 from hanno.excavator.client_factory import build_client
@@ -28,7 +32,13 @@ from hanno.logging_setup import setup_logging
 from hanno.seeds.manager import SeedManager
 from hanno.skills.registry import find_skill_file, load_skill_files, load_skills, set_skill_enabled
 from hanno.ui.jobs import JobRegistry
-from hanno.ui.secrets import api_key_status, load_api_key, load_config_overlay, save_api_key, save_config_overlay
+from hanno.ui.secrets import (
+    api_key_status,
+    load_api_key,
+    load_config_overlay,
+    save_api_key,
+    save_config_overlay,
+)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -41,12 +51,25 @@ VALID_SEED_DOMAINS = ("mathematics", "science", "philosophy", "cross-domain")
 # pattern in hanno/ledger/export.py: an explicit, documented surface rather
 # than exposing every internal knob to a web form.
 EXPOSED_EXCAVATOR_FIELDS = [
-    "provider", "base_url", "model", "request_timeout_seconds", "daily_spend_limit_usd", "candidates_per_cycle_per_seed", "temperatures",
-    "max_tokens_per_candidate", "arm_selection_strategy", "ucb1_exploration_constant",
-    "reasoning_efforts", "iteration_top_k", "strong_path_score_threshold",
-    "min_iterations_for_reseed", "beam_diversity_max_similarity",
-    "iteration_exploration_thread", "iteration_plateau_patience",
-    "iteration_lineage_retention_threshold", "max_lean_checks_per_iteration",
+    "provider",
+    "base_url",
+    "model",
+    "request_timeout_seconds",
+    "daily_spend_limit_usd",
+    "candidates_per_cycle_per_seed",
+    "temperatures",
+    "max_tokens_per_candidate",
+    "arm_selection_strategy",
+    "ucb1_exploration_constant",
+    "reasoning_efforts",
+    "iteration_top_k",
+    "strong_path_score_threshold",
+    "min_iterations_for_reseed",
+    "beam_diversity_max_similarity",
+    "iteration_exploration_thread",
+    "iteration_plateau_patience",
+    "iteration_lineage_retention_threshold",
+    "max_lean_checks_per_iteration",
 ]
 
 
@@ -76,7 +99,7 @@ def get_state() -> AppState:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global _state
     _state = AppState()
     yield
@@ -87,6 +110,7 @@ app = FastAPI(title="Hanno UI", lifespan=lifespan)
 
 
 # ---------- Seeds ----------
+
 
 @app.get("/api/seeds")
 async def list_seeds(domain: str | None = None) -> list[dict]:
@@ -109,13 +133,20 @@ class SeedSubmitRequest(BaseModel):
 @app.post("/api/seeds")
 async def submit_seed(req: SeedSubmitRequest) -> dict:
     if req.type not in VALID_SEED_TYPES:
-        raise HTTPException(400, f"invalid type {req.type!r}. Must be one of: {', '.join(VALID_SEED_TYPES)}")
+        raise HTTPException(
+            400, f"invalid type {req.type!r}. Must be one of: {', '.join(VALID_SEED_TYPES)}"
+        )
     if req.domain not in VALID_SEED_DOMAINS:
-        raise HTTPException(400, f"invalid domain {req.domain!r}. Must be one of: {', '.join(VALID_SEED_DOMAINS)}")
+        raise HTTPException(
+            400, f"invalid domain {req.domain!r}. Must be one of: {', '.join(VALID_SEED_DOMAINS)}"
+        )
 
     s = get_state()
     result = SeedManager(s.ledger, s.fingerprint_engine).submit(
-        text=req.text, domain=req.domain, type=req.type, submitter_id=req.submitter_id,
+        text=req.text,
+        domain=req.domain,
+        type=req.type,
+        submitter_id=req.submitter_id,
     )
     if not result.ok:
         raise HTTPException(400, result.feedback)
@@ -138,11 +169,16 @@ class ReseedRequest(BaseModel):
 @app.post("/api/reseed")
 async def reseed_from_candidate(req: ReseedRequest) -> dict:
     if req.domain not in VALID_SEED_DOMAINS:
-        raise HTTPException(400, f"invalid domain {req.domain!r}. Must be one of: {', '.join(VALID_SEED_DOMAINS)}")
+        raise HTTPException(
+            400, f"invalid domain {req.domain!r}. Must be one of: {', '.join(VALID_SEED_DOMAINS)}"
+        )
 
     s = get_state()
     result = SeedManager(s.ledger, s.fingerprint_engine).reseed_from_candidate(
-        candidate_id=req.candidate_id, text=req.text, domain=req.domain, operator_id=req.operator_id,
+        candidate_id=req.candidate_id,
+        text=req.text,
+        domain=req.domain,
+        operator_id=req.operator_id,
     )
     if not result.ok:
         raise HTTPException(400, result.feedback)
@@ -159,6 +195,7 @@ async def reseed_from_candidate(req: ReseedRequest) -> dict:
 
 # ---------- Trace (live during mining, and post-hoc -- same endpoint) ----------
 
+
 @app.get("/api/seeds/{seed_id}/trace")
 async def get_trace(seed_id: str) -> dict:
     s = get_state()
@@ -171,6 +208,7 @@ async def get_trace(seed_id: str) -> dict:
 
 
 # ---------- Mining jobs ----------
+
 
 class MineRequest(BaseModel):
     seed_id: str
@@ -186,8 +224,12 @@ async def _run_mining_job(pipeline: ExcavatorPipeline, req: MineRequest, seed_te
             await pipeline.run_cycle(req.seed_id, seed_text, req.candidates)
         else:
             await pipeline.run_iterative_mining(
-                req.seed_id, seed_text, req.candidates, req.depth,
-                top_k=req.top_k, resume=not req.fresh,
+                req.seed_id,
+                seed_text,
+                req.candidates,
+                req.depth,
+                top_k=req.top_k,
+                resume=not req.fresh,
             )
     finally:
         await pipeline.close()
@@ -211,13 +253,17 @@ async def start_mining(req: MineRequest) -> dict:
     provider = config.excavator.provider
     # Only the anthropic provider requires a key -- self-hosted/openai_compatible
     # backends (e.g. a local Ollama server) typically don't check auth at all.
-    api_key = load_api_key(provider) or (os.environ.get("ANTHROPIC_API_KEY") if provider == "anthropic" else None)
+    api_key = load_api_key(provider) or (
+        os.environ.get("ANTHROPIC_API_KEY") if provider == "anthropic" else None
+    )
     if provider == "anthropic" and not api_key:
         raise HTTPException(400, "No API key configured. Set one in the Settings tab first.")
 
     skills = load_skills(config.skills.directory) if config.skills.enabled else []
-    client = build_client(config, api_key=api_key)
-    pipeline = ExcavatorPipeline(s.ledger, config, s.fingerprint_engine, client=client, skills=skills)
+    client = build_client(config, api_key=api_key, ledger=s.ledger)
+    pipeline = ExcavatorPipeline(
+        s.ledger, config, s.fingerprint_engine, client=client, skills=skills
+    )
 
     s.jobs.start(req.seed_id, _run_mining_job(pipeline, req, seed_row["text"]))
     return {"started": True, "seed_id": req.seed_id}
@@ -229,6 +275,7 @@ async def mining_status(seed_id: str) -> dict:
 
 
 # ---------- Config ----------
+
 
 @app.get("/api/config")
 async def get_config() -> dict:
@@ -258,6 +305,7 @@ async def update_config(updates: dict[str, Any]) -> dict:
 
 # ---------- Secrets (API key) ----------
 
+
 @app.get("/api/secrets/api-key-status")
 async def get_api_key_status(provider: str = "anthropic") -> dict:
     return api_key_status(provider)
@@ -278,15 +326,20 @@ async def set_api_key(req: ApiKeyRequest) -> dict:
 
 # ---------- Skills ----------
 
+
 @app.get("/api/skills")
 async def list_skills() -> list[dict]:
     config = load_config()
     skills = load_skill_files(config.skills.directory)
     return [
         {
-            "name": sk.name, "description": sk.description, "command": sk.command,
-            "input_mode": sk.input_mode, "timeout_seconds": sk.timeout_seconds,
-            "max_output_chars": sk.max_output_chars, "enabled": sk.enabled,
+            "name": sk.name,
+            "description": sk.description,
+            "command": sk.command,
+            "input_mode": sk.input_mode,
+            "timeout_seconds": sk.timeout_seconds,
+            "max_output_chars": sk.max_output_chars,
+            "enabled": sk.enabled,
         }
         for sk in skills
     ]
@@ -308,13 +361,14 @@ async def toggle_skill(name: str, req: SkillToggleRequest) -> dict:
 
 # ---------- Static SPA (must be mounted last so /api/* above takes priority) ----------
 
+
 class NoCacheStaticFiles(StaticFiles):
     """Forces revalidation on every request. Without this, browsers apply
     heuristic caching to app.js/mindmap.js/app.css (no explicit Cache-Control
     from the default StaticFiles response) and can silently keep serving a
     stale copy after an edit -- even on a normal reload, not just once."""
 
-    async def get_response(self, path: str, scope):
+    async def get_response(self, path: str, scope: Scope) -> Response:
         response = await super().get_response(path, scope)
         response.headers["Cache-Control"] = "no-cache"
         return response

@@ -8,15 +8,19 @@ decision. Hanno's guardrails are containment, not safety guarantees: argv
 execution with no shell, hard timeouts, output truncation, and a per-
 candidate round budget. Skills unfit for that trade should stay disabled.
 """
+
 from __future__ import annotations
 
 import re
+import shutil
+import sys
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, ValidationError, field_validator
 
 from hanno.logging_setup import get_logger
+from hanno.paths import resource_path
 
 logger = get_logger("skills.registry")
 
@@ -58,7 +62,7 @@ class SkillDefinition(BaseModel):
             raise ValueError("command must have at least one element")
         return value
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, __context: object) -> None:
         if self.input_mode == "argument" and not any("{input}" in part for part in self.command):
             raise ValueError(
                 f"skill {self.name!r}: input_mode 'argument' requires an "
@@ -72,6 +76,8 @@ def load_skill_files(directory: str | Path) -> list[SkillDefinition]:
     with a logged warning, never fatal — one bad YAML must not take down
     mining."""
     directory = Path(directory)
+    if directory == Path("skills") and not directory.is_dir():
+        directory = resource_path("skills")
     if not directory.is_dir():
         return []
     skills: list[SkillDefinition] = []
@@ -83,6 +89,12 @@ def load_skill_files(directory: str | Path) -> list[SkillDefinition]:
             if not isinstance(raw, dict):
                 raise ValueError("top level must be a mapping")
             skill = SkillDefinition(**raw)
+            for i, part in enumerate(skill.command):
+                if part.startswith("skills/scripts/"):
+                    if not Path(part).exists():
+                        skill.command[i] = str(resource_path(part))
+                    if skill.command[0] == "python3":
+                        skill.command[0] = sys.executable
         except (ValidationError, ValueError, yaml.YAMLError) as e:
             logger.warning(f"skipping invalid skill file {path.name}: {e}")
             continue
@@ -118,6 +130,12 @@ def find_skill_file(directory: str | Path, name: str) -> Path | None:
     Used by the Settings/Skills UI to toggle `enabled` in place without a
     full YAML rewrite (which would drop the file's comments)."""
     directory = Path(directory)
+    if directory == Path("skills") and not directory.exists():
+        bundled = resource_path("skills")
+        if bundled.is_dir():
+            shutil.copytree(
+                bundled, directory, ignore=shutil.ignore_patterns("__pycache__", "*.pyc")
+            )
     if not directory.is_dir():
         return None
     for path in sorted(directory.glob("*.y*ml")):

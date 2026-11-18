@@ -1,4 +1,5 @@
 """Config loading and calibration-event auto-logging."""
+
 import json
 
 import pytest

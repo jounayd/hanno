@@ -9,13 +9,14 @@ sandboxed `run_code` skill (hanno/skills/runner.py), the same executor
 already governing that skill for live mining -- reused directly here, not
 new execution risk.
 """
+
 from __future__ import annotations
 
 import asyncio
 import re
 from dataclasses import dataclass
 
-from hanno.excavator.client import AnthropicClient
+from hanno.excavator.client import ModelClient
 from hanno.skills.registry import SkillDefinition
 from hanno.skills.runner import SkillResult, run_skill
 
@@ -60,7 +61,10 @@ class CounterexampleResult:
 
 
 async def search_for_counterexample(
-    statement: str, lean_code: str, client: AnthropicClient, skill: SkillDefinition,
+    statement: str,
+    lean_code: str,
+    client: ModelClient,
+    skill: SkillDefinition,
 ) -> CounterexampleResult:
     prompt = COUNTEREXAMPLE_PROMPT.format(statement=statement, lean_code=lean_code)
     generation = await client.generate(prompt, temperature=0.3, max_tokens=2000)
@@ -69,9 +73,16 @@ async def search_for_counterexample(
     # to_thread: run_skill blocks on a subprocess call (up to skill.timeout_seconds),
     # same reasoning as the Lean checker's to_thread wrapping.
     skill_result = await asyncio.to_thread(run_skill, skill, program)
-    refuted = COUNTEREXAMPLE_MARKER in skill_result.stdout
+    refuted = (
+        skill_result.exit_code == 0
+        and not skill_result.timed_out
+        and any(line.startswith(COUNTEREXAMPLE_MARKER) for line in skill_result.stdout.splitlines())
+    )
 
     return CounterexampleResult(
-        refuted=refuted, program=program, skill_result=skill_result,
-        input_tokens=generation.input_tokens, output_tokens=generation.output_tokens,
+        refuted=refuted,
+        program=program,
+        skill_result=skill_result,
+        input_tokens=generation.input_tokens,
+        output_tokens=generation.output_tokens,
     )

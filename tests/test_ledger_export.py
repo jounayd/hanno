@@ -1,6 +1,7 @@
 """hanno.ledger.export.build_trace_export: the shared JSON payload used by
 both `hanno trace --json` and the UI's /api/seeds/{id}/trace endpoint --
 must stay a stable, documented shape for hanno/ui/static/mindmap.js."""
+
 import pytest
 
 from hanno.ledger.export import MINDMAP_CANDIDATE_FIELDS, build_trace_export
@@ -10,10 +11,10 @@ from hanno.ledger.repository import Ledger
 
 @pytest.fixture
 def ledger(tmp_path):
-    l = Ledger.connect(tmp_path / "test.db")
-    l.init_schema()
-    yield l
-    l.close()
+    db = Ledger.connect(tmp_path / "test.db")
+    db.init_schema()
+    yield db
+    db.close()
 
 
 @pytest.fixture
@@ -24,16 +25,33 @@ def seed(ledger):
 
 
 def _candidate(seed_id, **overrides):
-    defaults = dict(
-        seed_id=seed_id, domain="mathematics", temperature=0.5, prompt_variant="direct_conjecture",
-        model="test-model", reasoning_effort="standard", raw_text="{}", core_claim="a claim",
-        formal_statement="forall x", intuition="because", connections=["algebra"],
-        self_assessed_novelty="n/a", identified_weaknesses="n/a", parse_status="ok",
-        duplicate_status="NOVEL", exploration_signal="continue", claim_type="structural",
-        numeric_check={"assignments": {"x": 1}, "equation": "x == 1"},
-        numeric_check_result=True, path_score=0.5, self_rated_novelty=0.5, self_rated_rigor=0.5,
-        prompt_text="prompt", input_tokens=10, output_tokens=20,
-    )
+    defaults: dict = {
+        "seed_id": seed_id,
+        "domain": "mathematics",
+        "temperature": 0.5,
+        "prompt_variant": "direct_conjecture",
+        "model": "test-model",
+        "reasoning_effort": "standard",
+        "raw_text": "{}",
+        "core_claim": "a claim",
+        "formal_statement": "forall x",
+        "intuition": "because",
+        "connections": ["algebra"],
+        "self_assessed_novelty": "n/a",
+        "identified_weaknesses": "n/a",
+        "parse_status": "ok",
+        "duplicate_status": "NOVEL",
+        "exploration_signal": "continue",
+        "claim_type": "structural",
+        "numeric_check": {"assignments": {"x": 1}, "equation": "x == 1"},
+        "numeric_check_result": True,
+        "path_score": 0.5,
+        "self_rated_novelty": 0.5,
+        "self_rated_rigor": 0.5,
+        "prompt_text": "prompt",
+        "input_tokens": 10,
+        "output_tokens": 20,
+    }
     defaults.update(overrides)
     return Candidate(**defaults)
 
@@ -84,10 +102,18 @@ def test_numeric_check_result_none_stays_none(ledger, seed):
 def test_tool_invocations_are_included_per_candidate(ledger, seed):
     c = _candidate(seed.id)
     ledger.insert_candidate(c)
-    ledger.insert_tool_invocation(ToolInvocation(
-        candidate_id=c.id, skill_name="run_code", input_text="print(1)",
-        stdout="1", stderr="", exit_code=0, duration_ms=12, timed_out=False,
-    ))
+    ledger.insert_tool_invocation(
+        ToolInvocation(
+            candidate_id=c.id,
+            skill_name="run_code",
+            input_text="print(1)",
+            stdout="1",
+            stderr="",
+            exit_code=0,
+            duration_ms=12,
+            timed_out=False,
+        )
+    )
     candidates = ledger.list_candidates_by_seed(seed.id)
 
     payload = build_trace_export(dict(ledger.get_seed(seed.id)), "queued", candidates, ledger)
@@ -101,11 +127,17 @@ def test_tool_invocations_are_included_per_candidate(ledger, seed):
 def test_lean_verifications_are_included_per_candidate(ledger, seed):
     c = _candidate(seed.id)
     ledger.insert_candidate(c)
-    ledger.insert_lean_verification(LeanVerification(
-        candidate_id=c.id, lean_code="theorem foo : True := by sorry",
-        translation_attempt_number=2, lean_stdout="", lean_stderr="",
-        result=None, execution_time_ms=500,
-    ))
+    ledger.insert_lean_verification(
+        LeanVerification(
+            candidate_id=c.id,
+            lean_code="theorem foo : True := by sorry",
+            translation_attempt_number=2,
+            lean_stdout="",
+            lean_stderr="",
+            result=None,
+            execution_time_ms=500,
+        )
+    )
     candidates = ledger.list_candidates_by_seed(seed.id)
 
     payload = build_trace_export(dict(ledger.get_seed(seed.id)), "queued", candidates, ledger)
@@ -120,11 +152,18 @@ def test_lean_verifications_are_included_per_candidate(ledger, seed):
 def test_discovery_is_attached_to_its_candidate(ledger, seed):
     c = _candidate(seed.id)
     ledger.insert_candidate(c)
-    ledger.insert_discovery(Discovery(
-        candidate_id=c.id, seed_id=seed.id, domain="mathematics",
-        statement="a claim", formal_statement="theorem foo : True := by sorry",
-        verification_result="SURVIVED", lean_verified=True, human_reviewed=False,
-    ))
+    ledger.insert_discovery(
+        Discovery(
+            candidate_id=c.id,
+            seed_id=seed.id,
+            domain="mathematics",
+            statement="a claim",
+            formal_statement="theorem foo : True := by sorry",
+            verification_result="SURVIVED",
+            lean_verified=True,
+            human_reviewed=False,
+        )
+    )
     candidates = ledger.list_candidates_by_seed(seed.id)
 
     payload = build_trace_export(dict(ledger.get_seed(seed.id)), "queued", candidates, ledger)

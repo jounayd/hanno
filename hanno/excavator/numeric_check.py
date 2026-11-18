@@ -20,6 +20,7 @@ model that cannot compute a quantity inside the equation will otherwise
 precompute it in its head and hand it in as an assignment — which is
 exactly the self-fulfilling-witness pattern this module exists to prevent.
 """
+
 from __future__ import annotations
 
 import ast
@@ -51,6 +52,7 @@ _ALLOWED_COMPARE = {
 }
 
 MAX_EXPONENT = 12  # guards against pathological a**b blowups (e.g. huge**huge)
+
 
 class UnsafeExpression(Exception):
     pass
@@ -118,13 +120,20 @@ def _call_ceil(args: list) -> Fraction:
 # ast.Attribute (e.g. "math.something") is never accepted, so there is no
 # path to anything beyond this fixed set.
 _ALLOWED_CALLS = {
-    "abs": _call_abs, "min": _call_min, "max": _call_max,
-    "len": _call_len, "sum": _call_sum, "gcd": _call_gcd,
-    "floor": _call_floor, "ceil": _call_ceil,
+    "abs": _call_abs,
+    "min": _call_min,
+    "max": _call_max,
+    "len": _call_len,
+    "sum": _call_sum,
+    "gcd": _call_gcd,
+    "floor": _call_floor,
+    "ceil": _call_ceil,
 }
 
 
-def _eval_node(node: ast.AST, assignments: dict[str, Fraction]):
+def _eval_node(
+    node: ast.AST, assignments: dict[str, Fraction]
+) -> Fraction | bool | tuple | frozenset:
     if isinstance(node, ast.Expression):
         return _eval_node(node.body, assignments)
     if isinstance(node, ast.Constant):
@@ -142,7 +151,9 @@ def _eval_node(node: ast.AST, assignments: dict[str, Fraction]):
     if isinstance(node, ast.BinOp) and type(node.op) in _ALLOWED_BINOPS:
         left = _eval_node(node.left, assignments)
         right = _eval_node(node.right, assignments)
-        if type(node.op) is ast.Pow and abs(right) > MAX_EXPONENT:
+        if type(node.op) is ast.Pow and (
+            not isinstance(right, Fraction) or abs(right) > MAX_EXPONENT
+        ):
             raise UnsafeExpression("exponent too large")
         return _ALLOWED_BINOPS[type(node.op)](left, right)
     if isinstance(node, ast.UnaryOp) and type(node.op) in _ALLOWED_UNARYOPS:
@@ -157,7 +168,7 @@ def _eval_node(node: ast.AST, assignments: dict[str, Fraction]):
     if isinstance(node, ast.Compare):
         left = _eval_node(node.left, assignments)
         result = True
-        for op, comparator in zip(node.ops, node.comparators):
+        for op, comparator in zip(node.ops, node.comparators, strict=True):
             if type(op) not in _ALLOWED_COMPARE:
                 raise UnsafeExpression(f"unsupported comparison: {ast.dump(op)}")
             right = _eval_node(comparator, assignments)
@@ -187,12 +198,21 @@ def evaluate_numeric_check(numeric_check: dict | None) -> bool | None:
 
     try:
         assignments = {
-            str(k): Fraction(v) for k, v in assignments_raw.items()
+            str(k): Fraction(v)
+            for k, v in assignments_raw.items()
             if isinstance(v, (int, float)) and not isinstance(v, bool)
         }
         if len(assignments) != len(assignments_raw):
             return None
         tree = ast.parse(equation, mode="eval")
         return bool(_eval_node(tree, assignments))
-    except (UnsafeExpression, ZeroDivisionError, SyntaxError, ValueError, TypeError, OverflowError, RecursionError):
+    except (
+        UnsafeExpression,
+        ZeroDivisionError,
+        SyntaxError,
+        ValueError,
+        TypeError,
+        OverflowError,
+        RecursionError,
+    ):
         return None

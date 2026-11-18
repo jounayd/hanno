@@ -1,6 +1,7 @@
 """tree_lab skill script: the searcher must return genuinely graceful
 labelings (verified, not asserted), the generator must be deterministic per
 seed, and malformed input must fail cleanly."""
+
 import json
 import subprocess
 import sys
@@ -11,14 +12,19 @@ SCRIPT = "skills/scripts/tree_lab.py"
 
 def run_lab(payload: dict) -> dict:
     proc = subprocess.run(
-        [PY, SCRIPT], input=json.dumps(payload),
-        capture_output=True, text=True, timeout=30,
+        [PY, SCRIPT],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     return json.loads(proc.stdout)
 
 
 def test_find_labeling_on_a_path():
-    out = run_lab({"op": "find_labeling", "edges": [["a", "b"], ["b", "c"], ["c", "d"], ["d", "e"]]})
+    out = run_lab(
+        {"op": "find_labeling", "edges": [["a", "b"], ["b", "c"], ["c", "d"], ["d", "e"]]}
+    )
     assert out["found"] is True
     assert out["verdict"]["graceful"] is True
 
@@ -68,11 +74,13 @@ def test_random_trees_deterministic_and_well_formed():
 
 
 def test_check_labeling_op():
-    out = run_lab({
-        "op": "check_labeling",
-        "edges": [["a", "b"], ["b", "c"], ["c", "d"]],
-        "labels": {"a": 0, "b": 3, "c": 1, "d": 2},
-    })
+    out = run_lab(
+        {
+            "op": "check_labeling",
+            "edges": [["a", "b"], ["b", "c"], ["c", "d"]],
+            "labels": {"a": 0, "b": 3, "c": 1, "d": 2},
+        }
+    )
     assert out["graceful"] is True
 
 
@@ -81,8 +89,11 @@ def test_unknown_op_and_bad_json_fail_cleanly():
     assert "unknown op" in out["error"]
 
     proc = subprocess.run(
-        [PY, SCRIPT], input="not json at all",
-        capture_output=True, text=True, timeout=10,
+        [PY, SCRIPT],
+        input="not json at all",
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     assert proc.returncode == 2
     assert "bad input" in json.loads(proc.stdout)["error"]

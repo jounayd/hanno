@@ -1,6 +1,7 @@
 """build_prompt: the already_explored injection is what lets later mining
 cycles diverge from what's already been produced, instead of every call
 independently reconverging on the same well-known angle."""
+
 from hanno.excavator.prompts import ALL_VARIANTS, STEERING_HINTS, build_prompt
 
 
@@ -12,7 +13,8 @@ def test_no_already_explored_by_default():
 
 def test_already_explored_is_injected_and_listed():
     prompt = build_prompt(
-        "a seed about number theory", "direct_conjecture",
+        "a seed about number theory",
+        "direct_conjecture",
         already_explored=["claim about residue classes mod 840", "claim about Egyptian fractions"],
     )
     assert "already been explored" in prompt
@@ -33,7 +35,8 @@ def test_no_steering_hint_by_default():
 
 def test_steering_hint_is_injected():
     prompt = build_prompt(
-        "a seed about number theory", "direct_conjecture",
+        "a seed about number theory",
+        "direct_conjecture",
         steering_hint="Focus on a probabilistic argument.",
     )
     assert "For this attempt specifically: Focus on a probabilistic argument." in prompt
@@ -46,6 +49,7 @@ def test_steering_hints_are_all_distinct():
 
 def test_unknown_variant_raises():
     import pytest
+
     with pytest.raises(ValueError):
         build_prompt("seed text", "not_a_real_variant")
 

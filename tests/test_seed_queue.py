@@ -4,11 +4,19 @@ Per General-spec.txt:328 fertility is discoveries_attributed / cycles_run
 (NOT candidates_produced), and per General-spec.txt:353-356 cross-domain
 seeds receive an explicit priority bonus.
 """
+
+from datetime import UTC
+
 from hanno.seeds.queue import CROSS_DOMAIN_BONUS, compute_priority
 
 
-def _seed(domain="mathematics", cycles_run=0, candidates_produced=0,
-          discoveries_attributed=0, submitted_at="2020-01-01T00:00:00+00:00"):
+def _seed(
+    domain="mathematics",
+    cycles_run=0,
+    candidates_produced=0,
+    discoveries_attributed=0,
+    submitted_at="2020-01-01T00:00:00+00:00",
+):
     return {
         "domain": domain,
         "cycles_run": cycles_run,
@@ -46,7 +54,8 @@ def test_cross_domain_seed_gets_bonus():
 
 def test_new_seed_with_zero_cycles_gets_recency_not_fertility():
     seed = _seed(cycles_run=0, discoveries_attributed=0)
-    from datetime import datetime, timezone
-    seed["submitted_at"] = datetime.now(timezone.utc).isoformat()
+    from datetime import datetime
+
+    seed["submitted_at"] = datetime.now(UTC).isoformat()
     priority = compute_priority(seed, active_domain_counts={"mathematics": 1})
     assert priority > 0  # recency boost applies, not zero fertility

@@ -1,4 +1,4 @@
-# THE GENERIC TOOL — DISABLED BY DEFAULT. Read before enabling.
+# THE GENERIC TOOL — ENABLED BY DEFAULT. Read before running model calls.
 #
 # run_code lets the mining model write and execute arbitrary Python to test
 # its own ideas — the general-purpose replacement for hand-authoring a tool
@@ -6,7 +6,7 @@
 # on this machine. The executor applies best-effort containment (CPU / memory
 # / file-size limits, blocked network, throwaway working directory, plus this
 # skill's timeout and output cap) but that is CONTAINMENT, NOT A SECURITY
-# BOUNDARY. Enable it only if you accept that, and prefer running Hanno itself
+# BOUNDARY. Disable it if you do not accept that, and prefer running Hanno itself
 # inside a container or VM. Installed libraries (e.g. sympy, numpy) are
 # importable by the model's code if present in Hanno's environment.
 name: run_code

@@ -44,6 +44,10 @@ window.Mindmap = (function () {
   // CLI must never disagree about what "deep verification" concluded.
   function discoveryStatus(c) {
     if (!c.discovery) return null;
+    if (c.discovery.status) {
+      var status = c.discovery.status;
+      return { text: status, cls: status.indexOf("REFUTED") === 0 ? "fail" : status.indexOf("PROVEN") === 0 ? "pass" : "gold" };
+    }
     var invocations = c.tool_invocations || [];
     var refuted = invocations.some(function (inv) { return (inv.stdout || "").indexOf(COUNTEREXAMPLE_MARKER) !== -1; });
     if (refuted) return { text: "REFUTED (counterexample found)", cls: "fail" };

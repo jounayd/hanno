@@ -11,6 +11,15 @@ logs/*.log
 .env
 *.egg-info/
 .pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+build/
+dist/
+.playwright-mcp/
+data/*.db-*
 
 # scratch/debug dumps from manual runs -- not part of the codebase
 trace.json

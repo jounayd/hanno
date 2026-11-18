@@ -1,10 +1,23 @@
 """Hanno CLI entrypoint — registers all subcommands."""
+
 from __future__ import annotations
 
 import typer
 
 from hanno.cli.commands import (
-    arms, benchmark, discoveries, export, lean_pilot, mine, report, seeds, skills, solve, stats, trace, ui,
+    arms,
+    benchmark,
+    discoveries,
+    export,
+    lean_pilot,
+    mine,
+    report,
+    seeds,
+    skills,
+    solve,
+    stats,
+    trace,
+    ui,
 )
 
 app = typer.Typer(help="Project Hanno — knowledge mining system.")

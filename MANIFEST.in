@@ -1,0 +1,5 @@
+include AGENTS.md .python-version pyrightconfig.json .editorconfig .gitattributes
+recursive-include docs *.md *.txt
+recursive-include scripts *.py
+recursive-include tests *.py
+recursive-include lean lean-toolchain *.toml *.json *.lean

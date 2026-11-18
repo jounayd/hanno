@@ -2,22 +2,28 @@
 and runs each case through solve_claim(). Hermetic -- solve_claim is faked
 at the hanno.solve.benchmark import site, so no real API key, network call,
 or Lean toolchain is needed."""
+
 from unittest.mock import patch
 
 import pytest
 
 from hanno.ledger.repository import Ledger
 from hanno.solve import benchmark as benchmark_module
-from hanno.solve.benchmark import BenchmarkCase, DEFAULT_BENCHMARK_PATH, load_benchmark_cases, run_benchmark
+from hanno.solve.benchmark import (
+    DEFAULT_BENCHMARK_PATH,
+    BenchmarkCase,
+    load_benchmark_cases,
+    run_benchmark,
+)
 from hanno.solve.pipeline import SolveResult
 
 
 @pytest.fixture
 def ledger(tmp_path):
-    l = Ledger.connect(tmp_path / "test.db")
-    l.init_schema()
-    yield l
-    l.close()
+    db = Ledger.connect(tmp_path / "test.db")
+    db.init_schema()
+    yield db
+    db.close()
 
 
 def test_default_benchmark_file_loads_and_is_non_empty():
@@ -34,16 +40,26 @@ def test_default_benchmark_path_points_at_the_real_fixture():
 
 def _solved(candidate_id="c1"):
     return SolveResult(
-        candidate_id=candidate_id, triviality_lean_code="import Mathlib\n\ntheorem foo : True := by sorry",
-        triviality_result=None, refuted=False, counterexample_output=None,
-        proved=True, proof_code="theorem foo : True := by trivial", discovery_id="d1",
-        stage_reached="proved", input_tokens=1_000_000, output_tokens=1_000_000,
+        candidate_id=candidate_id,
+        triviality_lean_code="import Mathlib\n\ntheorem foo : True := by sorry",
+        triviality_result=None,
+        refuted=False,
+        counterexample_output=None,
+        proved=True,
+        proof_code="theorem foo : True := by trivial",
+        discovery_id="d1",
+        stage_reached="proved",
+        input_tokens=1_000_000,
+        output_tokens=1_000_000,
     )
 
 
 class FakeClient:
     async def close(self):
         pass
+
+    async def generate(self, *args, **kwargs):
+        raise AssertionError("Unexpected model call in orchestration test")
 
 
 @pytest.mark.asyncio
@@ -54,8 +70,13 @@ async def test_run_benchmark_creates_a_fresh_seed_per_case_and_reports_cost(ledg
     ]
     with patch.object(benchmark_module, "solve_claim", return_value=_solved()) as mock_solve:
         results = await run_benchmark(
-            cases, FakeClient(), tmp_path, ledger,
-            lean_timeout_s=10, max_translation_attempts=3, max_proof_attempts=5,
+            cases,
+            FakeClient(),
+            tmp_path,
+            ledger,
+            lean_timeout_s=10,
+            max_translation_attempts=3,
+            max_proof_attempts=5,
             provider="anthropic",
         )
 
@@ -75,8 +96,13 @@ async def test_run_benchmark_reports_zero_cost_for_non_anthropic_provider(ledger
     cases = [BenchmarkCase(name="a", claim="claim A", difficulty="easy")]
     with patch.object(benchmark_module, "solve_claim", return_value=_solved()):
         results = await run_benchmark(
-            cases, FakeClient(), tmp_path, ledger,
-            lean_timeout_s=10, max_translation_attempts=3, max_proof_attempts=5,
+            cases,
+            FakeClient(),
+            tmp_path,
+            ledger,
+            lean_timeout_s=10,
+            max_translation_attempts=3,
+            max_proof_attempts=5,
             provider="openai_compatible",
         )
 

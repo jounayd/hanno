@@ -8,6 +8,7 @@ Also provides the config/local.yaml overlay writer used by the Settings
 form for every OTHER (non-secret) config field -- reuses hanno.config's
 deep_merge so partial saves don't clobber previously saved settings.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -27,7 +28,9 @@ def _field_name(provider: str) -> str:
     return f"{provider}_api_key"
 
 
-def load_api_key(provider: str = "anthropic", path: str | Path = DEFAULT_SECRETS_PATH) -> str | None:
+def load_api_key(
+    provider: str = "anthropic", path: str | Path = DEFAULT_SECRETS_PATH
+) -> str | None:
     path = Path(path)
     if not path.exists():
         return None
@@ -53,7 +56,9 @@ def save_api_key(provider: str, api_key: str, path: str | Path = DEFAULT_SECRETS
         pass  # best-effort; not every filesystem supports POSIX permissions
 
 
-def api_key_status(provider: str = "anthropic", path: str | Path = DEFAULT_SECRETS_PATH) -> dict[str, Any]:
+def api_key_status(
+    provider: str = "anthropic", path: str | Path = DEFAULT_SECRETS_PATH
+) -> dict[str, Any]:
     key = load_api_key(provider, path)
     if not key:
         return {"set": False, "last4": None}

@@ -1,4 +1,5 @@
 """Step 4: cryptographic hashing (General-spec.txt:536-539)."""
+
 from __future__ import annotations
 
 import hashlib

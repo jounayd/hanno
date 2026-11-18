@@ -10,6 +10,7 @@ is a deliberate miner decision, not a default.
 stdin: a Python/SymPy script. Whatever it prints is returned to the model.
 Requires: pip install sympy
 """
+
 import sys
 
 

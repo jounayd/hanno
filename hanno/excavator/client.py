@@ -11,16 +11,20 @@ implemented without anyone declaring it (FakeClaudeClient, ScriptedClient,
 etc. never subclassed the old ClaudeClient, they just duck-typed generate()
 and close()).
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Protocol
+from typing import Protocol
 
 from anthropic import APIStatusError, AsyncAnthropic, RateLimitError
+from anthropic.types import Message
 
+from hanno.excavator.spend_tracker import RequestBudget
 from hanno.logging_setup import get_logger
 from hanno.skills.registry import SkillDefinition, to_anthropic_tools
 
@@ -45,7 +49,7 @@ REPEATED_TOOL_CALL_MESSAGE = (
 )
 
 
-def _canonical_tool_call_key(name: str, tool_input) -> tuple[str, str]:
+def _canonical_tool_call_key(name: str, tool_input: object) -> tuple[str, str]:
     try:
         canonical_input = json.dumps(tool_input, sort_keys=True)
     except TypeError:
@@ -64,11 +68,12 @@ def _build_initial_content(prompt: str, cache_prefix: str | None) -> str | list[
     erroring, so this is always safe to set even for short prompts."""
     if not cache_prefix or not prompt.startswith(cache_prefix):
         return prompt
-    remainder = prompt[len(cache_prefix):]
+    remainder = prompt[len(cache_prefix) :]
     content = [{"type": "text", "text": cache_prefix, "cache_control": {"type": "ephemeral"}}]
     if remainder:
         content.append({"type": "text", "text": remainder})
     return content
+
 
 # Fed back as the tool_result for every tool call requested AFTER the round
 # budget is exhausted. Observed failure mode without this: the model is
@@ -118,8 +123,12 @@ class ModelClient(Protocol):
     provider class."""
 
     async def generate(
-        self, prompt: str, temperature: float,
-        max_tokens: int | None = None, thinking_budget_tokens: int | None = None,
+        self,
+        prompt: str,
+        temperature: float,
+        *,
+        max_tokens: int | None = None,
+        thinking_budget_tokens: int | None = None,
         tools: list[SkillDefinition] | None = None,
         tool_executor: Callable[[str, dict], str] | None = None,
         max_tool_rounds: int = 3,
@@ -131,20 +140,44 @@ class ModelClient(Protocol):
 
 class AnthropicClient:
     def __init__(
-        self, model: str, max_tokens: int, api_key: str | None = None,
+        self,
+        model: str,
+        max_tokens: int,
+        api_key: str | None = None,
         timeout_seconds: float | None = None,
-    ):
+        budget: RequestBudget | None = None,
+    ) -> None:
         self._model = model
         self._max_tokens = max_tokens
+        self._budget = budget
+        self.usage_accounted = budget is not None
         self._client = AsyncAnthropic(
-            api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"), timeout=timeout_seconds,
+            api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"),
+            timeout=timeout_seconds,
+            max_retries=0,  # this wrapper reserves budget separately for every retry
         )
 
-    async def _create_with_retry(self, kwargs: dict):
+    async def _create_with_retry(self, kwargs: dict) -> Message:
         attempt = 0
         while True:
             try:
-                return await self._client.messages.create(**kwargs)
+                call_id = self._budget.reserve(kwargs) if self._budget is not None else None
+                try:
+                    response = await self._client.messages.create(**kwargs)
+                except APIStatusError as error:
+                    if call_id is not None and self._budget is not None and error.status_code < 500:
+                        self._budget.settle(call_id, 0, 0)
+                    raise
+                if call_id is not None and self._budget is not None:
+                    # Include cache tokens conservatively at the normal input rate.
+                    usage = response.usage
+                    input_tokens = (
+                        usage.input_tokens
+                        + (getattr(usage, "cache_creation_input_tokens", 0) or 0)
+                        + (getattr(usage, "cache_read_input_tokens", 0) or 0)
+                    )
+                    self._budget.settle(call_id, input_tokens, usage.output_tokens)
+                return response
             except RateLimitError:
                 attempt += 1
                 if attempt > MAX_RETRIES:
@@ -161,8 +194,11 @@ class AnthropicClient:
                 await asyncio.sleep(backoff)
 
     async def generate(
-        self, prompt: str, temperature: float,
-        max_tokens: int | None = None, thinking_budget_tokens: int | None = None,
+        self,
+        prompt: str,
+        temperature: float,
+        max_tokens: int | None = None,
+        thinking_budget_tokens: int | None = None,
         tools: list[SkillDefinition] | None = None,
         tool_executor: Callable[[str, dict], str] | None = None,
         max_tool_rounds: int = 3,
@@ -172,7 +208,9 @@ class AnthropicClient:
         # ExcavatorPipeline passes raw SkillDefinitions so it never needs to
         # know which backend's tool-calling shape is active.
         anthropic_tools = to_anthropic_tools(tools) if tools else None
-        messages: list[dict] = [{"role": "user", "content": _build_initial_content(prompt, cache_prefix)}]
+        messages: list[dict] = [
+            {"role": "user", "content": _build_initial_content(prompt, cache_prefix)}
+        ]
         total_input = 0
         total_output = 0
         rounds = 0
@@ -181,11 +219,11 @@ class AnthropicClient:
         seen_tool_calls: dict[tuple[str, str], str] = {}
 
         while True:
-            kwargs: dict = dict(
-                model=self._model,
-                max_tokens=max_tokens or self._max_tokens,
-                messages=messages,
-            )
+            kwargs: dict = {
+                "model": self._model,
+                "max_tokens": max_tokens or self._max_tokens,
+                "messages": messages,
+            }
             if thinking_budget_tokens is not None:
                 # Extended thinking requires the API's own fixed sampling
                 # temperature — passing an explicit temperature alongside
@@ -206,16 +244,17 @@ class AnthropicClient:
             total_output += response.usage.output_tokens
 
             wants_tools = (
-                tools and tool_executor is not None
+                tools
+                and tool_executor is not None
                 and response.stop_reason == "tool_use"
                 and not finalizing
             )
             if not wants_tools:
-                text = "".join(
-                    block.text for block in response.content if block.type == "text"
-                )
+                text = "".join(block.text for block in response.content if block.type == "text")
                 return GenerationResult(
-                    text=text, input_tokens=total_input, output_tokens=total_output,
+                    text=text,
+                    input_tokens=total_input,
+                    output_tokens=total_output,
                     tool_rounds=rounds,
                 )
 
@@ -230,21 +269,30 @@ class AnthropicClient:
                 # model emits its final JSON instead of the loop returning
                 # mid-workflow prose.
                 if rounds >= max_tool_rounds:
-                    logger.info("tool round budget (%d) exhausted; forcing finalization", max_tool_rounds)
+                    logger.info(
+                        "tool round budget (%d) exhausted; forcing finalization", max_tool_rounds
+                    )
                     refusal_message = TOOL_BUDGET_EXHAUSTED_MESSAGE
                 else:
                     logger.info(
-                        "%d consecutive stale tool round(s); forcing finalization early", stale_rounds
+                        "%d consecutive stale tool round(s); forcing finalization early",
+                        stale_rounds,
                     )
                     refusal_message = STALE_LOOP_MESSAGE
-                messages.append({"role": "user", "content": [
+                messages.append(
                     {
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": refusal_message,
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": block.id,
+                                "content": refusal_message,
+                            }
+                            for block in response.content
+                            if block.type == "tool_use"
+                        ],
                     }
-                    for block in response.content if block.type == "tool_use"
-                ]})
+                )
                 finalizing = True
                 continue
 
@@ -262,16 +310,19 @@ class AnthropicClient:
                 else:
                     any_new_this_round = True
                     try:
+                        assert tool_executor is not None
                         output = await asyncio.to_thread(tool_executor, block.name, block.input)
                     except Exception as e:  # noqa: BLE001 — a broken tool must not kill the candidate
                         logger.error(f"tool {block.name} raised: {e}")
                         output = f"tool execution error: {e}"
                     seen_tool_calls[key] = output
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": output,
-                })
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": output,
+                    }
+                )
             messages.append({"role": "user", "content": tool_results})
             rounds += 1
             stale_rounds = 0 if any_new_this_round else stale_rounds + 1

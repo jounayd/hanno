@@ -2,8 +2,8 @@
 condition added on top of the beam search. Hermetic -- autoformalize_with_retry
 is patched, so this suite never needs the real Lean toolchain or a live API
 key (that only runs in the manual pilot / real mining)."""
+
 import json
-from pathlib import Path
 
 import pytest
 
@@ -20,14 +20,22 @@ TEST_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 def _payload(core_claim, novelty=0.7, rigor=0.7):
-    return json.dumps({
-        "domain": "mathematics", "core_claim": core_claim, "formal_statement": "forall x, P(x)",
-        "intuition": "intuition text", "connections": ["algebra"],
-        "self_assessed_novelty": "n/a", "identified_weaknesses": "n/a",
-        "exploration_signal": "continue", "suggested_seeds": [],
-        "self_rated_novelty": novelty, "self_rated_rigor": rigor,
-        "claim_type": "structural",
-    })
+    return json.dumps(
+        {
+            "domain": "mathematics",
+            "core_claim": core_claim,
+            "formal_statement": "forall x, P(x)",
+            "intuition": "intuition text",
+            "connections": ["algebra"],
+            "self_assessed_novelty": "n/a",
+            "identified_weaknesses": "n/a",
+            "exploration_signal": "continue",
+            "suggested_seeds": [],
+            "self_rated_novelty": novelty,
+            "self_rated_rigor": rigor,
+            "claim_type": "structural",
+        }
+    )
 
 
 class ScriptedClient:
@@ -35,7 +43,15 @@ class ScriptedClient:
         self._payloads = payloads
         self.calls = 0
 
-    async def generate(self, prompt, temperature, max_tokens=None, thinking_budget_tokens=None, cache_prefix=None):
+    async def generate(
+        self,
+        prompt,
+        temperature,
+        max_tokens=None,
+        thinking_budget_tokens=None,
+        cache_prefix=None,
+        **kwargs,
+    ):
         text = self._payloads[self.calls]
         self.calls += 1
         return GenerationResult(text=text, input_tokens=10, output_tokens=10)
@@ -46,10 +62,10 @@ class ScriptedClient:
 
 @pytest.fixture
 def ledger(tmp_path):
-    l = Ledger.connect(tmp_path / "test.db")
-    l.init_schema()
-    yield l
-    l.close()
+    db = Ledger.connect(tmp_path / "test.db")
+    db.init_schema()
+    yield db
+    db.close()
 
 
 @pytest.fixture
@@ -60,7 +76,11 @@ def fingerprint_engine(ledger):
 
 @pytest.fixture
 def seed(ledger):
-    s = Seed(text="a seed about additive number theory and unit fractions", domain="mathematics", type="human")
+    s = Seed(
+        text="a seed about additive number theory and unit fractions",
+        domain="mathematics",
+        type="human",
+    )
     ledger.insert_seed(s)
     return s
 
@@ -87,14 +107,20 @@ def _survivor_outcome(lean_code="theorem foo : True := by sorry"):
 def _malformed_outcome():
     return AutoformalizeWithCheckResult(
         lean_code="theorem foo : Bogus := by sorry",
-        check=CheckResult(compiles=False, trivial_by=None, stdout="error", stderr="", duration_ms=100),
+        check=CheckResult(
+            compiles=False, trivial_by=None, stdout="error", stderr="", duration_ms=100
+        ),
         attempts=3,
     )
 
 
 @pytest.mark.asyncio
 async def test_stops_early_on_first_survivor_and_records_both_ledger_rows(
-    ledger, fingerprint_engine, seed, tmp_path, monkeypatch,
+    ledger,
+    fingerprint_engine,
+    seed,
+    tmp_path,
+    monkeypatch,
 ):
     lean_dir = tmp_path / "mathlib_cache"
     lean_dir.mkdir()
@@ -107,21 +133,29 @@ async def test_stops_early_on_first_survivor_and_records_both_ledger_rows(
     config = _config(lean_dir, iteration_top_k=1)
     pipeline = ExcavatorPipeline(ledger, config, fingerprint_engine, client=client)
 
-    async def fake_autoformalize_with_retry(candidate, client_, project_dir, timeout_s, max_attempts):
+    async def fake_autoformalize_with_retry(
+        candidate, client_, project_dir, timeout_s, max_attempts
+    ):
         assert project_dir == lean_dir
         return _survivor_outcome()
 
     monkeypatch.setattr(
-        "hanno.excavator.pipeline.autoformalize_with_retry", fake_autoformalize_with_retry,
+        "hanno.excavator.pipeline.autoformalize_with_retry",
+        fake_autoformalize_with_retry,
     )
 
     result = await pipeline.run_iterative_mining(
-        seed.id, seed.text, n_candidates_per_iteration=1, depth=3, until_promising=True,
+        seed.id,
+        seed.text,
+        n_candidates_per_iteration=1,
+        depth=3,
+        until_promising=True,
     )
 
     assert client.calls == 1  # never reached iteration 2 or 3
     assert result.promising_found is True
     assert result.promising_candidate_id is not None
+    assert result.promising_reason is not None
     assert "triviality filter" in result.promising_reason
     assert len(result.iterations) == 1
     assert result.iterations[0].stopped_early is True
@@ -138,7 +172,9 @@ async def test_stops_early_on_first_survivor_and_records_both_ledger_rows(
 
 
 @pytest.mark.asyncio
-async def test_runs_to_full_depth_when_never_promising(ledger, fingerprint_engine, seed, tmp_path, monkeypatch):
+async def test_runs_to_full_depth_when_never_promising(
+    ledger, fingerprint_engine, seed, tmp_path, monkeypatch
+):
     lean_dir = tmp_path / "mathlib_cache"
     lean_dir.mkdir()
     payloads = [_payload(f"iteration {i}: a claim") for i in range(1, 4)]
@@ -146,15 +182,22 @@ async def test_runs_to_full_depth_when_never_promising(ledger, fingerprint_engin
     config = _config(lean_dir, iteration_top_k=1)
     pipeline = ExcavatorPipeline(ledger, config, fingerprint_engine, client=client)
 
-    async def fake_autoformalize_with_retry(candidate, client_, project_dir, timeout_s, max_attempts):
+    async def fake_autoformalize_with_retry(
+        candidate, client_, project_dir, timeout_s, max_attempts
+    ):
         return _malformed_outcome()
 
     monkeypatch.setattr(
-        "hanno.excavator.pipeline.autoformalize_with_retry", fake_autoformalize_with_retry,
+        "hanno.excavator.pipeline.autoformalize_with_retry",
+        fake_autoformalize_with_retry,
     )
 
     result = await pipeline.run_iterative_mining(
-        seed.id, seed.text, n_candidates_per_iteration=1, depth=3, until_promising=True,
+        seed.id,
+        seed.text,
+        n_candidates_per_iteration=1,
+        depth=3,
+        until_promising=True,
     )
 
     assert client.calls == 3
@@ -165,7 +208,9 @@ async def test_runs_to_full_depth_when_never_promising(ledger, fingerprint_engin
 
 
 @pytest.mark.asyncio
-async def test_does_not_lean_check_when_below_score_threshold(ledger, fingerprint_engine, seed, tmp_path, monkeypatch):
+async def test_does_not_lean_check_when_below_score_threshold(
+    ledger, fingerprint_engine, seed, tmp_path, monkeypatch
+):
     lean_dir = tmp_path / "mathlib_cache"
     lean_dir.mkdir()
     payloads = [_payload("a mediocre claim", novelty=0.3, rigor=0.3)]
@@ -175,16 +220,23 @@ async def test_does_not_lean_check_when_below_score_threshold(ledger, fingerprin
 
     calls = {"n": 0}
 
-    async def fake_autoformalize_with_retry(candidate, client_, project_dir, timeout_s, max_attempts):
+    async def fake_autoformalize_with_retry(
+        candidate, client_, project_dir, timeout_s, max_attempts
+    ):
         calls["n"] += 1
         return _survivor_outcome()
 
     monkeypatch.setattr(
-        "hanno.excavator.pipeline.autoformalize_with_retry", fake_autoformalize_with_retry,
+        "hanno.excavator.pipeline.autoformalize_with_retry",
+        fake_autoformalize_with_retry,
     )
 
     result = await pipeline.run_iterative_mining(
-        seed.id, seed.text, n_candidates_per_iteration=1, depth=1, until_promising=True,
+        seed.id,
+        seed.text,
+        n_candidates_per_iteration=1,
+        depth=1,
+        until_promising=True,
     )
 
     assert calls["n"] == 0  # score never cleared the (deliberately raised) threshold
@@ -195,7 +247,11 @@ async def test_does_not_lean_check_when_below_score_threshold(ledger, fingerprin
 
 @pytest.mark.asyncio
 async def test_checks_multiple_eligible_candidates_not_just_the_top_scoring_one(
-    ledger, fingerprint_engine, seed, tmp_path, monkeypatch,
+    ledger,
+    fingerprint_engine,
+    seed,
+    tmp_path,
+    monkeypatch,
 ):
     """The starvation fix: previously only the single highest-path_score
     candidate per iteration ever got Lean-checked. Self-rated path_score
@@ -212,17 +268,24 @@ async def test_checks_multiple_eligible_candidates_not_just_the_top_scoring_one(
     config = _config(lean_dir, iteration_top_k=2, max_lean_checks_per_iteration=3)
     pipeline = ExcavatorPipeline(ledger, config, fingerprint_engine, client=client)
 
-    async def fake_autoformalize_with_retry(candidate, client_, project_dir, timeout_s, max_attempts):
+    async def fake_autoformalize_with_retry(
+        candidate, client_, project_dir, timeout_s, max_attempts
+    ):
         if "vague" in candidate["core_claim"]:
             return _malformed_outcome()  # the higher-scoring candidate -- not a survivor
         return _survivor_outcome()  # the lower-scoring candidate -- a genuine survivor
 
     monkeypatch.setattr(
-        "hanno.excavator.pipeline.autoformalize_with_retry", fake_autoformalize_with_retry,
+        "hanno.excavator.pipeline.autoformalize_with_retry",
+        fake_autoformalize_with_retry,
     )
 
     result = await pipeline.run_iterative_mining(
-        seed.id, seed.text, n_candidates_per_iteration=2, depth=1, until_promising=True,
+        seed.id,
+        seed.text,
+        n_candidates_per_iteration=2,
+        depth=1,
+        until_promising=True,
     )
 
     assert result.promising_found is True
@@ -237,7 +300,11 @@ async def test_checks_multiple_eligible_candidates_not_just_the_top_scoring_one(
 
 @pytest.mark.asyncio
 async def test_max_lean_checks_per_iteration_caps_the_budget(
-    ledger, fingerprint_engine, seed, tmp_path, monkeypatch,
+    ledger,
+    fingerprint_engine,
+    seed,
+    tmp_path,
+    monkeypatch,
 ):
     lean_dir = tmp_path / "mathlib_cache"
     lean_dir.mkdir()
@@ -251,23 +318,34 @@ async def test_max_lean_checks_per_iteration_caps_the_budget(
 
     calls = {"n": 0}
 
-    async def fake_autoformalize_with_retry(candidate, client_, project_dir, timeout_s, max_attempts):
+    async def fake_autoformalize_with_retry(
+        candidate, client_, project_dir, timeout_s, max_attempts
+    ):
         calls["n"] += 1
-        return _malformed_outcome()  # neither is a survivor -- isolates the cap, not early-stop-on-survivor
+        return (
+            _malformed_outcome()
+        )  # neither is a survivor -- isolates the cap, not early-stop-on-survivor
 
     monkeypatch.setattr(
-        "hanno.excavator.pipeline.autoformalize_with_retry", fake_autoformalize_with_retry,
+        "hanno.excavator.pipeline.autoformalize_with_retry",
+        fake_autoformalize_with_retry,
     )
 
     await pipeline.run_iterative_mining(
-        seed.id, seed.text, n_candidates_per_iteration=2, depth=1, until_promising=True,
+        seed.id,
+        seed.text,
+        n_candidates_per_iteration=2,
+        depth=1,
+        until_promising=True,
     )
 
     assert calls["n"] == 1  # capped at max_lean_checks_per_iteration despite 2 eligible candidates
 
 
 @pytest.mark.asyncio
-async def test_skips_check_when_lean_project_dir_missing(ledger, fingerprint_engine, seed, tmp_path, monkeypatch):
+async def test_skips_check_when_lean_project_dir_missing(
+    ledger, fingerprint_engine, seed, tmp_path, monkeypatch
+):
     missing_dir = tmp_path / "does_not_exist"
     payloads = [_payload("a promising claim")]
     client = ScriptedClient(payloads)
@@ -276,16 +354,23 @@ async def test_skips_check_when_lean_project_dir_missing(ledger, fingerprint_eng
 
     calls = {"n": 0}
 
-    async def fake_autoformalize_with_retry(candidate, client_, project_dir, timeout_s, max_attempts):
+    async def fake_autoformalize_with_retry(
+        candidate, client_, project_dir, timeout_s, max_attempts
+    ):
         calls["n"] += 1
         return _survivor_outcome()
 
     monkeypatch.setattr(
-        "hanno.excavator.pipeline.autoformalize_with_retry", fake_autoformalize_with_retry,
+        "hanno.excavator.pipeline.autoformalize_with_retry",
+        fake_autoformalize_with_retry,
     )
 
     result = await pipeline.run_iterative_mining(
-        seed.id, seed.text, n_candidates_per_iteration=1, depth=1, until_promising=True,
+        seed.id,
+        seed.text,
+        n_candidates_per_iteration=1,
+        depth=1,
+        until_promising=True,
     )
 
     assert calls["n"] == 0  # project dir missing -- checked and skipped, no crash

@@ -5,6 +5,7 @@ later migration phase (2-6) is measured against -- before/after each change,
 the only thing that should move on this benchmark is the solve-rate and the
 cost, never the claim wording (that's fixed on purpose -- see the YAML
 file's own header comment)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,10 +17,11 @@ from hanno.excavator.client import ModelClient
 from hanno.excavator.spend_tracker import estimate_cost_usd
 from hanno.ledger.models import Seed
 from hanno.ledger.repository import Ledger
+from hanno.paths import resource_path
 from hanno.skills.registry import SkillDefinition
 from hanno.solve.pipeline import SolveResult, solve_claim
 
-DEFAULT_BENCHMARK_PATH = Path(__file__).resolve().parent.parent.parent / "benchmarks" / "solve_benchmark.yaml"
+DEFAULT_BENCHMARK_PATH = resource_path("benchmarks/solve_benchmark.yaml")
 
 
 @dataclass
@@ -70,14 +72,25 @@ async def run_benchmark(
     results: list[BenchmarkCaseResult] = []
     for case in cases:
         seed = Seed(
-            text=case.claim, domain="mathematics", type="ai-generated", submitter_id="benchmark",
+            text=case.claim,
+            domain="mathematics",
+            type="ai-generated",
+            submitter_id="benchmark",
         )
         ledger.insert_seed(seed)
         solve_result = await solve_claim(
-            case.claim, seed.id, client, project_dir, ledger,
-            lean_timeout_s, max_translation_attempts, max_proof_attempts,
-            model_name=model_name, run_code_skill=run_code_skill,
-            mathlib_search_skill=mathlib_search_skill, lean_goal_solver_skill=lean_goal_solver_skill,
+            case.claim,
+            seed.id,
+            client,
+            project_dir,
+            ledger,
+            lean_timeout_s,
+            max_translation_attempts,
+            max_proof_attempts,
+            model_name=model_name,
+            run_code_skill=run_code_skill,
+            mathlib_search_skill=mathlib_search_skill,
+            lean_goal_solver_skill=lean_goal_solver_skill,
             prover_client=prover_client,
         )
         cost = estimate_cost_usd(solve_result.input_tokens, solve_result.output_tokens, provider)

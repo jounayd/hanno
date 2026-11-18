@@ -2,6 +2,7 @@
 same core_claim across temperature/prompt-variant combinations must be
 flagged EXACT_DUPLICATE (General-spec.txt:112-115), never silently dropped.
 """
+
 import json
 
 import pytest
@@ -17,23 +18,28 @@ TEST_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 def _candidate_json(
-    core_claim: str, exploration_signal: str = "continue", suggested_seeds=None,
-    self_rated_novelty: float = 0.8, self_rated_rigor: float = 0.8,
+    core_claim: str,
+    exploration_signal: str = "continue",
+    suggested_seeds=None,
+    self_rated_novelty: float = 0.8,
+    self_rated_rigor: float = 0.8,
 ) -> str:
-    return json.dumps({
-        "domain": "mathematics",
-        "core_claim": core_claim,
-        "formal_statement": "forall x, P(x)",
-        "intuition": "intuition text",
-        "connections": ["algebra"],
-        "self_assessed_novelty": "medium",
-        "identified_weaknesses": "none",
-        "exploration_signal": exploration_signal,
-        "suggested_seeds": suggested_seeds or [],
-        "self_rated_novelty": self_rated_novelty,
-        "self_rated_rigor": self_rated_rigor,
-        "claim_type": "structural",
-    })
+    return json.dumps(
+        {
+            "domain": "mathematics",
+            "core_claim": core_claim,
+            "formal_statement": "forall x, P(x)",
+            "intuition": "intuition text",
+            "connections": ["algebra"],
+            "self_assessed_novelty": "medium",
+            "identified_weaknesses": "none",
+            "exploration_signal": exploration_signal,
+            "suggested_seeds": suggested_seeds or [],
+            "self_rated_novelty": self_rated_novelty,
+            "self_rated_rigor": self_rated_rigor,
+            "claim_type": "structural",
+        }
+    )
 
 
 class FakeClaudeClient:
@@ -45,9 +51,13 @@ class FakeClaudeClient:
         self.calls = 0
 
     async def generate(
-        self, prompt: str, temperature: float,
-        max_tokens: int | None = None, thinking_budget_tokens: int | None = None,
+        self,
+        prompt: str,
+        temperature: float,
+        max_tokens: int | None = None,
+        thinking_budget_tokens: int | None = None,
         cache_prefix: str | None = None,
+        **kwargs,
     ) -> GenerationResult:
         self.calls += 1
         return GenerationResult(text=self._text, input_tokens=100, output_tokens=100)
@@ -58,10 +68,10 @@ class FakeClaudeClient:
 
 @pytest.fixture
 def ledger(tmp_path):
-    l = Ledger.connect(tmp_path / "test.db")
-    l.init_schema()
-    yield l
-    l.close()
+    db = Ledger.connect(tmp_path / "test.db")
+    db.init_schema()
+    yield db
+    db.close()
 
 
 @pytest.fixture
@@ -72,12 +82,18 @@ def fingerprint_engine(ledger):
 
 @pytest.mark.asyncio
 async def test_repeated_identical_candidates_flagged_exact_duplicate(ledger, fingerprint_engine):
-    same_text = _candidate_json("Every finite simple group embeds into a bounded-degree symmetric group.")
+    same_text = _candidate_json(
+        "Every finite simple group embeds into a bounded-degree symmetric group."
+    )
     client = FakeClaudeClient(same_text)
     config = HannoConfig()
     config.excavator.daily_spend_limit_usd = 1000.0
 
-    seed = Seed(text="a seed about finite simple groups and representation theory", domain="mathematics", type="human")
+    seed = Seed(
+        text="a seed about finite simple groups and representation theory",
+        domain="mathematics",
+        type="human",
+    )
     ledger.insert_seed(seed)
 
     pipeline = ExcavatorPipeline(ledger, config, fingerprint_engine, client=client)
@@ -110,17 +126,27 @@ async def test_repeated_identical_candidates_flagged_exact_duplicate(ledger, fin
 
 @pytest.mark.asyncio
 async def test_second_cycle_prompts_include_prior_core_claims(ledger, fingerprint_engine):
-    seed = Seed(text="a seed about finite simple groups and representation theory", domain="mathematics", type="human")
+    seed = Seed(
+        text="a seed about finite simple groups and representation theory",
+        domain="mathematics",
+        type="human",
+    )
     ledger.insert_seed(seed)
     config = HannoConfig()
     config.excavator.daily_spend_limit_usd = 1000.0
 
     first_text = _candidate_json("A claim about Sylow subgroup embeddings in symmetric groups.")
-    pipeline = ExcavatorPipeline(ledger, config, fingerprint_engine, client=FakeClaudeClient(first_text))
+    pipeline = ExcavatorPipeline(
+        ledger, config, fingerprint_engine, client=FakeClaudeClient(first_text)
+    )
     await pipeline.run_cycle(seed_id=seed.id, seed_text=seed.text, n_candidates=1)
 
-    second_text = _candidate_json("A distinct claim about representation stability in symmetric groups.")
-    pipeline2 = ExcavatorPipeline(ledger, config, fingerprint_engine, client=FakeClaudeClient(second_text))
+    second_text = _candidate_json(
+        "A distinct claim about representation stability in symmetric groups."
+    )
+    pipeline2 = ExcavatorPipeline(
+        ledger, config, fingerprint_engine, client=FakeClaudeClient(second_text)
+    )
     await pipeline2.run_cycle(seed_id=seed.id, seed_text=seed.text, n_candidates=1)
 
     candidates = ledger.list_candidates_by_seed(seed.id)

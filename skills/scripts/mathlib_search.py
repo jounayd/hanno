@@ -26,17 +26,26 @@ stdin: a plain-text query. Two modes, auto-detected:
     name, case-insensitive.
 stdout: up to 15 matches as "name [kind] -- relative/path:line -- <decl line>".
 """
+
 import pathlib
 import re
+import subprocess
 import sys
+from collections.abc import Iterator
 
-MATHLIB_ROOT = pathlib.Path(__file__).resolve().parents[2] / "data" / "mathlib_cache" / ".lake" / "packages" / "mathlib" / "Mathlib"
+from hanno.config import load_config
+
+# Runtime data belongs to the working project, not the installed script directory.
+PROJECT_DIR = pathlib.Path(load_config().lean_verifier.mathlib_cache_path).resolve()
+MATHLIB_ROOT = PROJECT_DIR / ".lake" / "packages" / "mathlib" / "Mathlib"
 MAX_RESULTS = 15
 
 _DECL_RE = re.compile(r"^(theorem|lemma|def|instance|abbrev)\s+([A-Za-z_][A-Za-z0-9_'.]*)")
 _NAMESPACE_RE = re.compile(r"^namespace\s+(\S+)")
 _END_RE = re.compile(r"^end(?:\s+(\S+))?\s*$")
-_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_'.]*\??$")  # trailing '?' allowed: Lean's own "search" tactics (exact?, apply?, rewrite?) use it
+_IDENT_RE = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_'.]*\??$"
+)  # trailing '?' allowed: Lean's own "search" tactics (exact?, apply?, rewrite?) use it
 
 # Tactics are a different Lean construct from theorems/lemmas -- introduced
 # via `syntax`/`elab`/`macro ... : tactic`, with the actual invocation
@@ -53,7 +62,7 @@ _QUOTED_STRING_RE = re.compile(r'"([^"]*)"')
 _TACTIC_DECL_WINDOW = 5  # lines to look ahead for the ": tactic" marker
 
 
-def _iter_declarations():
+def _iter_declarations() -> Iterator[tuple[str, pathlib.Path, int, str]]:
     """Yields (qualified_name, path, lineno, decl_line) for every
     theorem/lemma/def/instance/abbrev in the vendored Mathlib tree, tracking
     a namespace stack so names come out reasonably fully-qualified (e.g.
@@ -83,23 +92,29 @@ def _iter_declarations():
 
 
 def _lean_core_src_root() -> pathlib.Path | None:
-    """The active elan toolchain's own Lean source (distinct from Mathlib) --
-    this is where core tactics like `omega`, `decide`, `exact`, `rfl` are
-    declared; Mathlib's own Tactic/ directory covers the rest (`ring`,
-    `norm_num`, `linarith`, ...). Discovered dynamically since the toolchain
-    directory name is version-specific. None if no toolchain is installed
-    locally (tactic verification is then skipped gracefully)."""
-    elan_toolchains = pathlib.Path.home() / ".elan" / "toolchains"
-    if not elan_toolchains.is_dir():
+    """Use the project's selected Lean sources, even with other toolchains installed.
+
+    `elan which` resolves an installed binary without installing a toolchain.
+    Respect ELAN_HOME rather than guessing a path under the user's home.
+    """
+    try:
+        result = subprocess.run(
+            ["elan", "which", "lean"],
+            cwd=PROJECT_DIR,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
         return None
-    for toolchain_dir in elan_toolchains.iterdir():
-        src_lean = toolchain_dir / "src" / "lean"
-        if src_lean.is_dir():
-            return src_lean
-    return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    source = pathlib.Path(result.stdout.strip()).parent.parent / "src" / "lean"
+    return source if source.is_dir() else None
 
 
-def _iter_tactic_declarations(root: pathlib.Path):
+def _iter_tactic_declarations(root: pathlib.Path) -> Iterator[tuple[str, pathlib.Path, int, str]]:
     """Yields (tactic_name, path, lineno, decl_line) for every tactic
     introduced under `root` via `syntax`/`elab`/`macro ... : tactic` -- the
     invocation keyword is the first quoted string literal in the
@@ -114,7 +129,7 @@ def _iter_tactic_declarations(root: pathlib.Path):
         for i, line in enumerate(lines):
             if not _TACTIC_START_RE.match(line):
                 continue
-            window_lines = lines[i:i + _TACTIC_DECL_WINDOW]
+            window_lines = lines[i : i + _TACTIC_DECL_WINDOW]
             window_text = "\n".join(window_lines)
             if not _TACTIC_MARKER_RE.search(window_text):
                 continue
@@ -149,7 +164,9 @@ def main() -> int:
         print("[mathlib_search: empty query -- provide a lemma/tactic name or keywords]")
         return 1
     if not MATHLIB_ROOT.is_dir():
-        print(f"[mathlib_search: Mathlib source not found at {MATHLIB_ROOT} -- is the Lean toolchain set up?]")
+        print(
+            f"[mathlib_search: Mathlib source not found at {MATHLIB_ROOT} -- is the Lean toolchain set up?]"
+        )
         return 1
 
     is_single_identifier = _IDENT_RE.match(query) is not None
@@ -187,10 +204,14 @@ def main() -> int:
 
     ranked.sort(key=lambda r: -r[0])
     if not ranked:
-        print(f"NOT FOUND -- no lemma or tactic in Mathlib/Lean matches {query!r} (exact or by keyword). Do not guess this name; search a different, simpler keyword instead.")
+        print(
+            f"NOT FOUND -- no lemma or tactic in Mathlib/Lean matches {query!r} (exact or by keyword). Do not guess this name; search a different, simpler keyword instead."
+        )
         return 0
 
-    print(f"NOT FOUND as an exact name -- {query!r} does not exist in Mathlib/Lean as a lemma or tactic. Closest real declarations by keyword overlap:")
+    print(
+        f"NOT FOUND as an exact name -- {query!r} does not exist in Mathlib/Lean as a lemma or tactic. Closest real declarations by keyword overlap:"
+    )
     for _, kind, name, rel, lineno, decl_line in ranked[:MAX_RESULTS]:
         print(f"  {name} [{kind}] -- {rel}:{lineno} -- {decl_line}")
     return 0

@@ -3,6 +3,7 @@ receives tool definitions and an executor; every tool invocation the model
 makes is persisted to the append-only ledger, linked to the candidate that
 made it. With no skills registered, behavior is byte-identical to before
 (covered implicitly by every other pipeline test)."""
+
 import json
 import subprocess
 import sys
@@ -22,14 +23,22 @@ PY = sys.executable
 
 
 def _payload(core_claim):
-    return json.dumps({
-        "domain": "mathematics", "core_claim": core_claim, "formal_statement": "forall x, P(x)",
-        "intuition": "intuition text", "connections": ["algebra"],
-        "self_assessed_novelty": "n/a", "identified_weaknesses": "n/a",
-        "exploration_signal": "continue", "suggested_seeds": [],
-        "self_rated_novelty": 0.7, "self_rated_rigor": 0.7,
-        "claim_type": "structural",
-    })
+    return json.dumps(
+        {
+            "domain": "mathematics",
+            "core_claim": core_claim,
+            "formal_statement": "forall x, P(x)",
+            "intuition": "intuition text",
+            "connections": ["algebra"],
+            "self_assessed_novelty": "n/a",
+            "identified_weaknesses": "n/a",
+            "exploration_signal": "continue",
+            "suggested_seeds": [],
+            "self_rated_novelty": 0.7,
+            "self_rated_rigor": 0.7,
+            "claim_type": "structural",
+        }
+    )
 
 
 class ToolUsingFakeClient:
@@ -39,15 +48,28 @@ class ToolUsingFakeClient:
         self.received_tools = None
         self.received_cache_prefix = None
 
-    async def generate(self, prompt, temperature, max_tokens=None, thinking_budget_tokens=None,
-                       tools=None, tool_executor=None, max_tool_rounds=3, cache_prefix=None):
+    async def generate(
+        self,
+        prompt,
+        temperature,
+        max_tokens=None,
+        thinking_budget_tokens=None,
+        tools=None,
+        tool_executor=None,
+        max_tool_rounds=3,
+        cache_prefix=None,
+        **kwargs,
+    ):
         self.received_tools = tools
         self.received_cache_prefix = cache_prefix
         if tools and tool_executor:
+            assert tool_executor is not None
             tool_executor("upper_tool", {"input": "check this claim"})
         return GenerationResult(
             text=_payload("A tested claim about additive structures in trees."),
-            input_tokens=10, output_tokens=10, tool_rounds=1 if tools else 0,
+            input_tokens=10,
+            output_tokens=10,
+            tool_rounds=1 if tools else 0,
         )
 
     async def close(self):
@@ -56,10 +78,10 @@ class ToolUsingFakeClient:
 
 @pytest.fixture
 def ledger(tmp_path):
-    l = Ledger.connect(tmp_path / "test.db")
-    l.init_schema()
-    yield l
-    l.close()
+    db = Ledger.connect(tmp_path / "test.db")
+    db.init_schema()
+    yield db
+    db.close()
 
 
 @pytest.fixture
@@ -71,12 +93,15 @@ def fingerprint_engine(ledger):
 @pytest.mark.asyncio
 async def test_tool_invocations_are_persisted_and_linked(ledger, fingerprint_engine):
     skill = SkillDefinition(
-        name="upper_tool", description="Uppercases input.",
+        name="upper_tool",
+        description="Uppercases input.",
         command=[PY, "-c", "import sys; print(sys.stdin.read().upper())"],
     )
     config = HannoConfig()
     config.excavator.daily_spend_limit_usd = 1000.0
-    seed = Seed(text="a seed about graph theory and tree labelings", domain="mathematics", type="human")
+    seed = Seed(
+        text="a seed about graph theory and tree labelings", domain="mathematics", type="human"
+    )
     ledger.insert_seed(seed)
 
     client = ToolUsingFakeClient()
@@ -103,7 +128,9 @@ async def test_tool_invocations_are_persisted_and_linked(ledger, fingerprint_eng
 async def test_no_skills_means_no_tools_passed(ledger, fingerprint_engine):
     config = HannoConfig()
     config.excavator.daily_spend_limit_usd = 1000.0
-    seed = Seed(text="a seed about graph theory and tree labelings", domain="mathematics", type="human")
+    seed = Seed(
+        text="a seed about graph theory and tree labelings", domain="mathematics", type="human"
+    )
     ledger.insert_seed(seed)
 
     client = ToolUsingFakeClient()
@@ -117,7 +144,9 @@ async def test_no_skills_means_no_tools_passed(ledger, fingerprint_engine):
 
 
 @pytest.mark.asyncio
-async def test_generation_call_receives_the_stable_prompt_prefix_for_caching(ledger, fingerprint_engine):
+async def test_generation_call_receives_the_stable_prompt_prefix_for_caching(
+    ledger, fingerprint_engine
+):
     # Phase 2 (EXCAVATOR_MIGRATION_PLAN.md): the per-variant instructions in
     # hanno/excavator/prompts.py are byte-identical across every candidate --
     # the pipeline must pass that exact substring as cache_prefix so
@@ -126,7 +155,9 @@ async def test_generation_call_receives_the_stable_prompt_prefix_for_caching(led
 
     config = HannoConfig()
     config.excavator.daily_spend_limit_usd = 1000.0
-    seed = Seed(text="a seed about graph theory and tree labelings", domain="mathematics", type="human")
+    seed = Seed(
+        text="a seed about graph theory and tree labelings", domain="mathematics", type="human"
+    )
     ledger.insert_seed(seed)
 
     client = ToolUsingFakeClient()
@@ -140,13 +171,18 @@ async def test_generation_call_receives_the_stable_prompt_prefix_for_caching(led
 
 def test_graceful_check_script_accepts_a_valid_labeling():
     # Path P4 labeled 0-3-1-2: edge labels |0-3|=3, |3-1|=2, |1-2|=1 -> graceful
-    payload = json.dumps({
-        "edges": [["a", "b"], ["b", "c"], ["c", "d"]],
-        "labels": {"a": 0, "b": 3, "c": 1, "d": 2},
-    })
+    payload = json.dumps(
+        {
+            "edges": [["a", "b"], ["b", "c"], ["c", "d"]],
+            "labels": {"a": 0, "b": 3, "c": 1, "d": 2},
+        }
+    )
     proc = subprocess.run(
-        [PY, "skills/scripts/graceful_check.py"], input=payload,
-        capture_output=True, text=True, timeout=10,
+        [PY, "skills/scripts/graceful_check.py"],
+        input=payload,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     verdict = json.loads(proc.stdout)
     assert verdict["graceful"] is True
@@ -155,13 +191,18 @@ def test_graceful_check_script_accepts_a_valid_labeling():
 
 def test_graceful_check_script_rejects_a_bad_labeling():
     # Star K1,3 labeled center=1: edge labels 1,1,2 -> duplicate, not graceful
-    payload = json.dumps({
-        "edges": [["c", "x"], ["c", "y"], ["c", "z"]],
-        "labels": {"c": 1, "x": 0, "y": 2, "z": 3},
-    })
+    payload = json.dumps(
+        {
+            "edges": [["c", "x"], ["c", "y"], ["c", "z"]],
+            "labels": {"c": 1, "x": 0, "y": 2, "z": 3},
+        }
+    )
     proc = subprocess.run(
-        [PY, "skills/scripts/graceful_check.py"], input=payload,
-        capture_output=True, text=True, timeout=10,
+        [PY, "skills/scripts/graceful_check.py"],
+        input=payload,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     verdict = json.loads(proc.stdout)
     assert verdict["graceful"] is False

@@ -1,7 +1,6 @@
 """Translates a candidate's informal formal_statement into an actual Lean 4
-statement (Step 6 pilot -- see hanno/config.py's LeanVerifierConfig, unused
-until now). One-shot Claude calls, not the agentic tool loop: this is a
-translation task, not open-ended investigation.
+statement using the configured model and optional grounding tools. Compiler
+errors feed into bounded retries before the statement reaches verification.
 
 Hanno's formal_statement field is informal prose ("expressed in
 domain-appropriate formal language" -- see prompts.py), not Lean syntax, so
@@ -17,13 +16,14 @@ with UNTRANSLATABLE on claims that were in fact concrete and single-statement.
 Both get a real retry with the actual Lean error (or a nudge) fed back,
 up to LeanVerifierConfig.max_translation_attempts.
 """
+
 from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from hanno.excavator.client import ModelClient
 from hanno.lean.checker import (
@@ -76,35 +76,47 @@ compiles but does not mean what the claim says, which is worse than failing to t
   statement, even a strictly more general one. Formalize exactly the claim given, not a stronger or
   weaker relative of it."""
 
-AUTOFORMALIZE_PROMPT = """You are translating an informal mathematical claim into a formal Lean 4 theorem statement, for automated checking against Mathlib.
+AUTOFORMALIZE_PROMPT = (
+    """You are translating an informal mathematical claim into a formal Lean 4 theorem statement, for automated checking against Mathlib.
 
 Core claim: {core_claim}
 
 Informal formal statement: {formal_statement}
 
-""" + WORKED_EXAMPLES + """
+"""
+    + WORKED_EXAMPLES
+    + """
 
-""" + STRENGTH_PRESERVATION_RULES + """
+"""
+    + STRENGTH_PRESERVATION_RULES
+    + """
 
 Write a single Lean 4 `theorem` (or `example`) statement that captures this claim exactly, in the same style as the examples above. Use a single `import Mathlib` line -- do not import specific submodules, since their exact file paths change frequently and you may not have precise, current knowledge of Mathlib's layout. End the proof with exactly `:= by sorry` -- do not attempt to prove it. If the claim cannot be faithfully expressed as a Lean 4 statement (too vague, not actually mathematical, or relies on undefined terms), respond with exactly the text UNTRANSLATABLE and nothing else.
 
 Output ONLY a single ```lean fenced code block (or the literal word UNTRANSLATABLE) -- no prose before or after."""
+)
 
-RETRY_AFTER_DECLINE_PROMPT = """You previously declined to translate this mathematical claim into Lean 4, responding UNTRANSLATABLE:
+RETRY_AFTER_DECLINE_PROMPT = (
+    """You previously declined to translate this mathematical claim into Lean 4, responding UNTRANSLATABLE:
 
 Core claim: {core_claim}
 
 Informal formal statement: {formal_statement}
 
-""" + WORKED_EXAMPLES + """
+"""
+    + WORKED_EXAMPLES
+    + """
 
-""" + STRENGTH_PRESERVATION_RULES + """
+"""
+    + STRENGTH_PRESERVATION_RULES
+    + """
 
 Please reconsider and make a genuine attempt, even if it requires some interpretation or simplification of the claim -- the examples above show this is usually a mechanical restatement, not a research problem. Only respond UNTRANSLATABLE again if this is truly impossible to state as a single Lean theorem (for example, it describes a multi-step research program rather than one checkable claim).
 
 Write a single Lean 4 `theorem` (or `example`) statement. Use a single `import Mathlib` line -- do not import specific submodules. End the proof with exactly `:= by sorry`.
 
 Output ONLY a single ```lean fenced code block (or the literal word UNTRANSLATABLE) -- no prose before or after."""
+)
 
 RETRY_AFTER_ERROR_PROMPT = """Your previous Lean 4 translation did not compile against Mathlib.
 
@@ -141,45 +153,73 @@ class AutoformalizeResult:
 def _extract(text: str, input_tokens: int = 0, output_tokens: int = 0) -> AutoformalizeResult:
     text = text.strip()
     if "UNTRANSLATABLE" in text:
-        return AutoformalizeResult(lean_code=None, raw_response=text, input_tokens=input_tokens, output_tokens=output_tokens)
+        return AutoformalizeResult(
+            lean_code=None,
+            raw_response=text,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
     match = _CODE_BLOCK_RE.search(text)
     if not match:
-        return AutoformalizeResult(lean_code=None, raw_response=text, input_tokens=input_tokens, output_tokens=output_tokens)
+        return AutoformalizeResult(
+            lean_code=None,
+            raw_response=text,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
     code = ensure_mathlib_import(fix_deprecated_bigop_notation(match.group(1).strip()))
-    return AutoformalizeResult(lean_code=code, raw_response=text, input_tokens=input_tokens, output_tokens=output_tokens)
+    return AutoformalizeResult(
+        lean_code=code, raw_response=text, input_tokens=input_tokens, output_tokens=output_tokens
+    )
 
 
 async def autoformalize(
-    candidate: dict, client: ModelClient,
-    tools: list[SkillDefinition] | None = None, tool_executor: Callable[[str, dict], str] | None = None,
+    candidate: dict,
+    client: ModelClient,
+    tools: list[SkillDefinition] | None = None,
+    tool_executor: Callable[[str, dict], str] | None = None,
 ) -> AutoformalizeResult:
     prompt = AUTOFORMALIZE_PROMPT.format(
         core_claim=candidate.get("core_claim") or "",
         formal_statement=candidate.get("formal_statement") or "",
     )
     result = await client.generate(
-        prompt, temperature=0.2, max_tokens=1500, tools=tools, tool_executor=tool_executor,
+        prompt,
+        temperature=0.2,
+        max_tokens=1500,
+        tools=tools,
+        tool_executor=tool_executor,
     )
     return _extract(result.text, result.input_tokens, result.output_tokens)
 
 
 async def _retry_after_decline(
-    candidate: dict, client: ModelClient,
-    tools: list[SkillDefinition] | None = None, tool_executor: Callable[[str, dict], str] | None = None,
+    candidate: dict,
+    client: ModelClient,
+    tools: list[SkillDefinition] | None = None,
+    tool_executor: Callable[[str, dict], str] | None = None,
 ) -> AutoformalizeResult:
     prompt = RETRY_AFTER_DECLINE_PROMPT.format(
         core_claim=candidate.get("core_claim") or "",
         formal_statement=candidate.get("formal_statement") or "",
     )
     result = await client.generate(
-        prompt, temperature=0.2, max_tokens=1500, tools=tools, tool_executor=tool_executor,
+        prompt,
+        temperature=0.2,
+        max_tokens=1500,
+        tools=tools,
+        tool_executor=tool_executor,
     )
     return _extract(result.text, result.input_tokens, result.output_tokens)
 
 
 async def _retry_after_error(
-    candidate: dict, client: ModelClient, previous_code: str, error_output: str,
-    tools: list[SkillDefinition] | None = None, tool_executor: Callable[[str, dict], str] | None = None,
+    candidate: dict,
+    client: ModelClient,
+    previous_code: str,
+    error_output: str,
+    tools: list[SkillDefinition] | None = None,
+    tool_executor: Callable[[str, dict], str] | None = None,
 ) -> AutoformalizeResult:
     prompt = RETRY_AFTER_ERROR_PROMPT.format(
         core_claim=candidate.get("core_claim") or "",
@@ -187,7 +227,11 @@ async def _retry_after_error(
         error_output=error_output.strip()[:2000],
     )
     result = await client.generate(
-        prompt, temperature=0.2, max_tokens=1500, tools=tools, tool_executor=tool_executor,
+        prompt,
+        temperature=0.2,
+        max_tokens=1500,
+        tools=tools,
+        tool_executor=tool_executor,
     )
     return _extract(result.text, result.input_tokens, result.output_tokens)
 
@@ -202,8 +246,13 @@ class AutoformalizeWithCheckResult:
 
 
 async def autoformalize_with_retry(
-    candidate: dict, client: ModelClient, project_dir: Path, timeout_s: int, max_attempts: int,
-    tools: list[SkillDefinition] | None = None, tool_executor: Callable[[str, dict], str] | None = None,
+    candidate: dict,
+    client: ModelClient,
+    project_dir: Path,
+    timeout_s: int,
+    max_attempts: int,
+    tools: list[SkillDefinition] | None = None,
+    tool_executor: Callable[[str, dict], str] | None = None,
 ) -> AutoformalizeWithCheckResult:
     """Translate, check, and on a fixable failure retry with real feedback
     (the actual Lean error, or a nudge past an over-eager UNTRANSLATABLE),
@@ -223,8 +272,11 @@ async def autoformalize_with_retry(
         if af.lean_code is None:
             if attempt >= max_attempts:
                 return AutoformalizeWithCheckResult(
-                    lean_code=None, check=None, attempts=attempt,
-                    input_tokens=total_input, output_tokens=total_output,
+                    lean_code=None,
+                    check=None,
+                    attempts=attempt,
+                    input_tokens=total_input,
+                    output_tokens=total_output,
                 )
             attempt += 1
             af = await _retry_after_decline(candidate, client, tools, tool_executor)
@@ -239,11 +291,16 @@ async def autoformalize_with_retry(
         check = await asyncio.to_thread(check_statement, af.lean_code, project_dir, timeout_s)
         if check.compiles or check.timed_out or attempt >= max_attempts:
             return AutoformalizeWithCheckResult(
-                lean_code=af.lean_code, check=check, attempts=attempt,
-                input_tokens=total_input, output_tokens=total_output,
+                lean_code=af.lean_code,
+                check=check,
+                attempts=attempt,
+                input_tokens=total_input,
+                output_tokens=total_output,
             )
 
         attempt += 1
-        af = await _retry_after_error(candidate, client, af.lean_code, check.stdout, tools, tool_executor)
+        af = await _retry_after_error(
+            candidate, client, af.lean_code, check.stdout, tools, tool_executor
+        )
         total_input += af.input_tokens
         total_output += af.output_tokens

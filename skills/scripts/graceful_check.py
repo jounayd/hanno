@@ -9,6 +9,7 @@ stdout: JSON verdict explaining exactly which property holds or fails:
   - edge_labels: the |u-v| values, and whether they are exactly {1..n-1}
   - graceful: the final verdict
 """
+
 import json
 import sys
 
@@ -19,7 +20,13 @@ def main() -> int:
         edges = [(str(u), str(v)) for u, v in data["edges"]]
         labels = {str(k): int(v) for k, v in data["labels"].items()}
     except (KeyError, TypeError, ValueError) as e:
-        print(json.dumps({"error": f"bad input: {e}. Expected {{'edges': [[u,v],...], 'labels': {{vertex: int}}}}"}))
+        print(
+            json.dumps(
+                {
+                    "error": f"bad input: {e}. Expected {{'edges': [[u,v],...], 'labels': {{vertex: int}}}}"
+                }
+            )
+        )
         return 2
 
     vertices = set(labels.keys())

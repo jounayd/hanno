@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS tool_invocations (
     id              TEXT PRIMARY KEY,
     candidate_id    TEXT NOT NULL REFERENCES candidates(id),
     skill_name      TEXT NOT NULL,
+    phase           TEXT NOT NULL DEFAULT 'generation',
     input_text      TEXT NOT NULL,
     stdout          TEXT,
     stderr          TEXT,
@@ -120,6 +121,7 @@ CREATE TABLE IF NOT EXISTS excavation_cycles (
     candidates_parsed_ok    INTEGER NOT NULL,
     candidates_failed       INTEGER NOT NULL,
     total_cost_usd          REAL NOT NULL,
+    usage_accounted         INTEGER NOT NULL DEFAULT 0,
     total_input_tokens      INTEGER NOT NULL DEFAULT 0,
     total_output_tokens     INTEGER NOT NULL DEFAULT 0,
     iteration               INTEGER NOT NULL DEFAULT 1,
@@ -184,7 +186,7 @@ CREATE TABLE IF NOT EXISTS reducer_versions (
 );
 
 -- ============================================================
--- SIEVE (Step 5 — schema present now, unused until then)
+-- SIEVE (reserved for the planned multi-dimensional evaluator)
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS sieve_evaluations (
@@ -325,6 +327,30 @@ CREATE TABLE IF NOT EXISTS reseed_events (
 -- ============================================================
 -- APPEND-ONLY ENFORCEMENT
 -- ============================================================
+
+-- Reserve before dispatch so concurrent calls cannot spend the same budget.
+-- A call without a settlement retains its reservation when billing is unknown.
+CREATE TABLE IF NOT EXISTS model_call_reservations (
+    id TEXT PRIMARY KEY,
+    model TEXT NOT NULL,
+    reserved_cost_usd REAL NOT NULL,
+    started_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS model_call_settlements (
+    call_id TEXT PRIMARY KEY REFERENCES model_call_reservations(id),
+    actual_cost_usd REAL NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    completed_at TEXT NOT NULL
+);
+CREATE TRIGGER IF NOT EXISTS model_call_reservations_no_update AFTER UPDATE ON model_call_reservations
+BEGIN SELECT RAISE(ABORT, 'append-only: update forbidden on model_call_reservations'); END;
+CREATE TRIGGER IF NOT EXISTS model_call_reservations_no_delete AFTER DELETE ON model_call_reservations
+BEGIN SELECT RAISE(ABORT, 'append-only: delete forbidden on model_call_reservations'); END;
+CREATE TRIGGER IF NOT EXISTS model_call_settlements_no_update AFTER UPDATE ON model_call_settlements
+BEGIN SELECT RAISE(ABORT, 'append-only: update forbidden on model_call_settlements'); END;
+CREATE TRIGGER IF NOT EXISTS model_call_settlements_no_delete AFTER DELETE ON model_call_settlements
+BEGIN SELECT RAISE(ABORT, 'append-only: delete forbidden on model_call_settlements'); END;
 
 CREATE TRIGGER IF NOT EXISTS seeds_no_update AFTER UPDATE ON seeds
 BEGIN SELECT RAISE(ABORT, 'append-only: update forbidden on seeds'); END;

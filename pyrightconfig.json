@@ -1,0 +1,12 @@
+{
+  "include": ["hanno", "skills/scripts", "scripts", "tests"],
+  "exclude": ["**/__pycache__", ".venv", "build", "dist"],
+  "pythonVersion": "3.11",
+  "pythonPlatform": "All",
+  "venvPath": ".",
+  "venv": ".venv",
+  "typeCheckingMode": "standard",
+  "reportMissingImports": "error",
+  "reportMissingTypeStubs": "none",
+  "reportPrivateUsage": "none"
+}

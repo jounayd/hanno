@@ -1,6 +1,7 @@
 """config/local.yaml overlay: the Settings UI writes only the fields the
 user changed here, never touching the checked-in, documented default.yaml.
 Precedence must stay env vars > local.yaml > default.yaml."""
+
 import yaml
 
 from hanno.config import deep_merge, load_config
@@ -8,7 +9,10 @@ from hanno.ui.secrets import load_config_overlay, save_config_overlay
 
 
 def test_deep_merge_overlays_nested_keys_without_dropping_siblings():
-    base = {"excavator": {"model": "base-model", "candidates_per_cycle_per_seed": 50}, "skills": {"enabled": True}}
+    base = {
+        "excavator": {"model": "base-model", "candidates_per_cycle_per_seed": 50},
+        "skills": {"enabled": True},
+    }
     overlay = {"excavator": {"model": "overridden-model"}}
 
     merged = deep_merge(base, overlay)
@@ -21,9 +25,13 @@ def test_deep_merge_overlays_nested_keys_without_dropping_siblings():
 def test_load_config_applies_local_overlay_on_top_of_default(tmp_path):
     default_path = tmp_path / "default.yaml"
     local_path = tmp_path / "local.yaml"
-    default_path.write_text(yaml.safe_dump({
-        "excavator": {"model": "claude-sonnet-4-5-20250929", "daily_spend_limit_usd": 25.0},
-    }))
+    default_path.write_text(
+        yaml.safe_dump(
+            {
+                "excavator": {"model": "claude-sonnet-4-5-20250929", "daily_spend_limit_usd": 25.0},
+            }
+        )
+    )
     local_path.write_text(yaml.safe_dump({"excavator": {"daily_spend_limit_usd": 5.0}}))
 
     config = load_config(path=default_path, local_path=local_path)
@@ -42,25 +50,19 @@ def test_load_config_with_no_local_overlay_is_unaffected(tmp_path):
     assert config.excavator.daily_spend_limit_usd == 25.0
 
 
-def test_local_overlay_wins_over_env_var_when_field_is_present_in_yaml(tmp_path, monkeypatch):
-    # Documents a real, PRE-EXISTING characteristic of load_config (not
-    # introduced by the local-overlay feature): HannoConfig(**raw) passes
-    # "excavator" as an explicit init value whenever `raw` contains that
-    # key, and pydantic-settings' init source outranks env per *field*
-    # (not per *leaf*) -- so a HANNO_EXCAVATOR__* env var only has an
-    # effect when `raw` omits "excavator" entirely. Since default.yaml
-    # populates every section, env overrides for existing fields are
-    # effectively inert today. This test pins the actual behavior so a
-    # future fix to that precedence doesn't regress silently.
+def test_env_var_wins_over_yaml_and_preserves_sibling_fields(tmp_path, monkeypatch):
     default_path = tmp_path / "default.yaml"
     local_path = tmp_path / "local.yaml"
-    default_path.write_text(yaml.safe_dump({"excavator": {"daily_spend_limit_usd": 25.0}}))
+    default_path.write_text(
+        yaml.safe_dump({"excavator": {"daily_spend_limit_usd": 25.0, "model": "yaml-model"}})
+    )
     local_path.write_text(yaml.safe_dump({"excavator": {"daily_spend_limit_usd": 5.0}}))
     monkeypatch.setenv("HANNO_EXCAVATOR__DAILY_SPEND_LIMIT_USD", "1.0")
 
     config = load_config(path=default_path, local_path=local_path)
 
-    assert config.excavator.daily_spend_limit_usd == 5.0  # local.yaml wins; env var is inert here
+    assert config.excavator.daily_spend_limit_usd == 1.0
+    assert config.excavator.model == "yaml-model"
 
 
 def test_env_var_applies_when_section_is_absent_from_yaml_entirely(tmp_path, monkeypatch):

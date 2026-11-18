@@ -8,11 +8,13 @@ job running for this seed, and did it error."
 Not persisted: restarting `hanno ui` forgets job status, but every
 candidate a job already produced stays in the ledger regardless.
 """
+
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Coroutine
 from dataclasses import dataclass
-from typing import Any, Coroutine
+from typing import Any
 
 from hanno.ledger.models import now_iso
 

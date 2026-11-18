@@ -1,7 +1,8 @@
 # Hanno MVP — User Manual
 
-**Version:** 0.1.0 (Steps 1–4 implemented)  
-**Scope:** Ledger, Seed Management, Excavator (mathematics), and Fingerprint Engine.
+**Version:** 0.1.0
+
+**Scope:** Mathematics: seed management, EXPLORE and SOLVE pipelines, local Lean verification, and the web UI.
 
 ---
 
@@ -15,7 +16,7 @@ The MVP is a working knowledge-mining pipeline:
 4. **Track everything** — all records are append-only in an SQLite ledger, with costs, cycles, and duplicate counts logged.
 5. **Export / inspect** — dump the ledger as JSON or view basic stats.
 
-**What is *not* in this build:** the Sieve AI scoring, domain verifiers (Lean 4 for math, literature checks for science/philosophy), discovery minting, and the reporting/review loop. Those arrive in Steps 5–7.
+Lean triviality checks, counterexample search, proof search, and discovery tracking are implemented. The full Sieve, science/philosophy verification, and automated literature novelty checks remain future work.
 
 ---
 
@@ -24,17 +25,11 @@ The MVP is a working knowledge-mining pipeline:
 Requires **Python 3.11+**.
 
 ```bash
-cd /Users/jounayd/PROJECTS/HANNO
+cd hanno
+uv sync --locked
 
-# Create a virtual environment
-python3.11 -m venv .venv
+# Optional: activate once to use the plain `hanno` commands below.
 source .venv/bin/activate
-
-# Install in editable mode
-pip install -e .
-
-# Or install with dev dependencies
-pip install -e ".[dev]"
 ```
 
 After installation the `hanno` command is available:
@@ -94,7 +89,7 @@ Output columns:
 - `status` — `pending`, `exhausted`, `retired`, etc.
 - `cycles` — how many excavation cycles have run.
 - `candidates` — candidates produced for the seed.
-- `discoveries` — always 0 in the MVP (no verifier yet).
+- `discoveries` — candidates that survived the Lean triviality filter and were flagged for review.
 
 ### 3.4 Mine candidates from a seed
 
@@ -189,7 +184,7 @@ The default configuration lives in `config/default.yaml`. Important values:
 
 | Section | Key | Default | Meaning |
 |---------|-----|---------|---------|
-| `excavator` | `daily_spend_limit_usd` | `25.0` | Hard stop on API spending per day. Only meaningful for `provider: anthropic` — cost estimation has a real per-token pricing table for Anthropic only; `openai_compatible` always reports $0 (covers everything from a free local Ollama server to metered hosted APIs, and Hanno can't know which without guessing), so this limit never triggers on that provider. |
+| `excavator` | `daily_spend_limit_usd` | `25.0` | Estimated daily budget across mining, formalization, tool rounds, retries, and proof search. Only meaningful for `provider: anthropic` — cost estimation has a real per-token pricing table for Anthropic only; `openai_compatible` always reports $0 (covers everything from a free local Ollama server to metered hosted APIs, and Hanno can't know which without guessing), so this limit never triggers on that provider. |
 | `excavator` | `provider` | `anthropic` | `anthropic` \| `openai_compatible` — which `ModelClient` backend to use (see `hanno/excavator/client_factory.py`). `openai_compatible` covers OpenAI itself plus any self-hosted or hosted server speaking the same `/v1/chat/completions` wire format (Ollama, LM Studio, vLLM, Groq, ...) — see `LOCAL_MODEL_SETUP.md` for a local Ollama walkthrough. Skills/tool-calling work on both providers via each one's own wire format (Anthropic tool-use blocks vs. OpenAI function-calling) — whether a given `openai_compatible` model actually uses them depends on whether that specific model supports tool-calling; Hanno degrades gracefully either way (see `hanno/excavator/openai_client.py`) rather than crashing a candidate over it. |
 | `excavator` | `base_url` | `null` | Only used when `provider: openai_compatible` — e.g. `http://localhost:11434/v1` for a local Ollama server. Required whenever `provider` is `openai_compatible`; `hanno mine` etc. fail with a clear error if it's missing. |
 | `excavator` | `model` | `claude-sonnet-4-5-20250929` | Model name, interpreted per-provider (a Claude model id for `anthropic`, the server's own model tag for `openai_compatible`, e.g. `deepseek-r1-14b-hanno`) |
@@ -251,29 +246,29 @@ max_output_chars: 4000
 enabled: true
 ```
 
-Drop a file in, it's registered — no code changes. `hanno skills` lists everything (including disabled files). When at least one skill is enabled, `hanno mine` calls become agentic: the model can invoke a tool, Hanno executes the command locally, and the result is fed back into the model's reasoning — up to `skills.max_tool_rounds_per_candidate` (default 3) round-trips per candidate, since each round re-bills the conversation. Every invocation (input, stdout/stderr, exit code, duration) is recorded in the append-only `tool_invocations` table and shown in `hanno trace` (use `--full` for complete tool I/O; the `--json` export includes them too). With no skills registered, behavior is exactly as before.
+Drop a file in, it's registered — no code changes. `hanno skills` lists everything (including disabled files). When at least one skill is enabled, `hanno mine` calls become agentic: the model can invoke a tool, Hanno executes the command locally, and the result is fed back into the model's reasoning — up to `skills.max_tool_rounds_per_candidate` (default 6) round-trips per candidate, since each round re-bills the conversation. Every invocation (input, stdout/stderr, exit code, duration) is recorded in the append-only `tool_invocations` table and shown in `hanno trace` (use `--full` for complete tool I/O; the `--json` export includes them too). With no skills registered, behavior is exactly as before.
 
 **The generic tool vs. hand-authored tools.** There are two ways to give the model instruments, and they trade off effort against safety:
 
 - **Hand-authored, safe tools** (like `graceful_check` and `tree_lab`) are scripts *you* write that only parse JSON and compute — they never execute model text as code, so they're safe to leave enabled. The cost is that each only serves one kind of problem; a new domain needs a new script.
 - **The generic tool** `run_code` needs no per-problem authoring: the model writes a short Python program to test whatever its current idea needs (check a construction, loop to hunt a counterexample, run a small simulation) and Hanno executes it. One tool, every domain — the model decides the computation. The cost is that this *is* arbitrary model-written code running on your machine.
 
-**Security — read this before enabling `run_code` or `sympy_eval`:** a skill executes a local command with model-supplied input. A skill whose command *interprets that input as code* (`run_code`, `sympy_eval`) is opt-in **arbitrary code execution by the model on your machine**. That's why both ship `enabled: false` — flipping them is your deliberate decision as the miner. `run_code`'s executor applies best-effort containment (CPU/memory/file-size limits, blocked network, throwaway working directory, on top of the timeout, output cap, and round budget every skill gets) — but that is *containment, not a security boundary*: a determined escape is possible. If you enable it, run Hanno itself inside a container or VM. The safe tools (`graceful_check`, `tree_lab`) have no such caveat. Four included examples:
+**Code execution defaults:** `run_code` ships **enabled**; `sympy_eval` ships disabled. Both execute model-written Python on your machine. Set `enabled: false` in `skills/run_code.yaml` or toggle it off in the UI to remove it from generation tools. `run_code` applies best-effort containment (CPU/memory/file-size limits, blocked network, a throwaway working directory, timeout and output caps), which is not a security boundary. Run Hanno inside a container or VM when executing model-written code. Counterexample verification also uses the code executor independently of the mining toggle. The shipped definitions are:
 
 | Skill | What it does | Default |
 |---|---|---|
 | `graceful_check` | Verifies one graceful labeling of a tree (JSON in, verdict out; never executes model text) | enabled |
-| `tree_lab` | Searches for a graceful labeling, generates random trees, checks labelings — safe search/generation instruments | enabled |
+| `tree_lab` | Searches for a graceful labeling, generates random trees, checks labelings — safe search/generation instruments | disabled |
 | `mathlib_search` | Read-only, no code execution: searches the real vendored Mathlib + Lean core source for a lemma/theorem OR a tactic by exact name (`EXISTS` + real signature/declaration, tagged `[lemma/theorem]` or `[tactic]`, or `NOT FOUND` + closest real matches) or by keyword. Grounds formalize/prove against real Mathlib instead of a hallucinated name — see `hanno solve`/`hanno discoveries verify` in Section 5. | enabled |
 | `lean_goal_solver` | Executes the real Lean compiler (short, disposable scratch files only) against a battery of standard closing tactics (`omega`, `decide`, `norm_num`, `simp`, `positivity`, `exact?`) for a given standalone sub-goal, and reports which one (if any) actually works — verified, not guessed. The generic complement to `mathlib_search`: that tool grounds *name* lookup, this one grounds *tactic selection* (e.g. catches committing `omega`, a linear-arithmetic-only tactic, to a goal involving exponentiation, which it can never close regardless of the fact being true). | enabled |
-| `run_code` | **Generic:** runs arbitrary model-written Python to test any idea — best-effort sandbox | **disabled** |
+| `run_code` | **Generic:** runs arbitrary model-written Python to test any idea — best-effort containment | **enabled** |
 | `sympy_eval` | Runs model-written SymPy scripts — the "Maple-style" CAS lane (`pip install sympy` first) | **disabled** |
 
 | Config key | Default | Meaning |
 |---|---|---|
 | `skills.enabled` | `true` | Master switch for the whole mechanism |
 | `skills.directory` | `skills` | Where the YAML definitions live |
-| `skills.max_tool_rounds_per_candidate` | `3` | Model→tool→model round-trips allowed per candidate |
+| `skills.max_tool_rounds_per_candidate` | `6` | Model→tool→model round-trips allowed per candidate |
 
 ---
 
@@ -327,7 +322,7 @@ Use `hanno trace SEED_ID --lineage CANDIDATE_ID` (with the final candidate ID fr
 
 ### `hanno stats`
 
-Show cycle totals, parse success rate, today's spend, and cumulative token usage (input/output tokens across all cycles, plus average tokens per candidate). Token counts are estimates-grade (from the Anthropic API's own `usage` field) but the dollar cost is still a hardcoded-price estimate, not billing truth.
+Show cycle totals, parse success rate, and recorded usage even when no mining cycles exist. Total estimated cost and tokens combine settled model requests (including solve, verification, and tool rounds) with cycles recorded without request accounting; mining usage is counted once. Outstanding request reservations are shown separately from settled cost, across all dates. Today's spend includes today's outstanding reservations and uses UTC dates. The average tokens per candidate covers mining cycles only. Request counts cover request-level records only. OpenAI-compatible usage is currently captured in mining cycles; standalone calls through that provider have no request-level accounting. Dollar costs use estimated pricing, not provider billing.
 
 ### `hanno export [--path PATH]`
 
@@ -379,15 +374,15 @@ Every tab and every seed viewed in the Mine tab is a real URL (`#mine`, `#mine/<
 
 ### `hanno lean-pilot [--limit N]`
 
-A validation pilot for the Lean-based triviality filter (Step 6, previously stubbed and unused since Step 1 — see `LeanVerifierConfig` in `config/default.yaml`). For up to `N` (default 50) already-mined `mathematics` candidates that haven't been checked yet, this:
+A validation pilot for the Lean-based triviality filter (see `LeanVerifierConfig` in `config/default.yaml`). For up to `N` (default 50) already-mined `mathematics` candidates that haven't been checked yet, this:
 
 1. Translates the candidate's informal `formal_statement` into an actual Lean 4 `theorem ... := by sorry` statement via a single one-shot Claude call (not the full agentic Excavator loop — just a translation).
 2. Typechecks it locally against Mathlib (`lake env lean`).
 3. If it typechecks, tries closing the `sorry` with `exact?` then `simp` — if either succeeds, the claim was trivially known already.
 
-Every attempt writes a real row to the (previously empty) `lean_verifications` table: `UNTRANSLATABLE` (couldn't be expressed in Lean), `MALFORMED` (didn't typecheck), `KNOWN` (typechecked but closed trivially), `TIMEOUT`, or unset/`None` for a genuine **survivor** — compiles, and neither `exact?` nor `simp` closes it. Survivors are printed at the end for a quick look; this pilot never claims `VERIFIED` itself — that's what `hanno discoveries verify` (below) is for, since actually proving something needs a real proof-search attempt, not a translation pass.
+Every attempt writes a real row to the `lean_verifications` table: `UNTRANSLATABLE` (couldn't be expressed in Lean), `MALFORMED` (didn't typecheck), `KNOWN` (typechecked but closed trivially), `TIMEOUT`, or unset/`None` for a genuine **survivor** — compiles, and neither `exact?` nor `simp` closes it. Survivors are printed at the end for a quick look; this pilot never claims `VERIFIED` itself — that's what `hanno discoveries verify` (below) is for, since actually proving something needs a real proof-search attempt, not a translation pass.
 
-Requires a one-time local Lean toolchain setup (not run automatically): `elan` (Lean's version manager), a Lake project at `data/mathlib_cache` (the exact path `LeanVerifierConfig.mathlib_cache_path` already names) depending on Mathlib, and `lake exe cache get` to pull precompiled Mathlib rather than building it from source. No AWS, no self-hosted inference, no new mining — this reuses candidates already sitting in the ledger from real runs.
+Prepare the pinned project with `uv run poe lean:setup`, then run `uv run poe test:lean`. This installs Lean 4.36.0 and the locked Mathlib revision at `data/mathlib_cache`, downloading precompiled artifacts. See [development setup](development.md#lean-and-mathlib) for prerequisites and offline checks. The pilot reuses candidates already in the ledger.
 
 ### `hanno report`
 
@@ -395,14 +390,14 @@ Requires a one-time local Lean toolchain setup (not run automatically): `elan` (
 
 ### `hanno discoveries list`
 
-Lists every row in the (previously unused) `discoveries` table — one per candidate that `hanno mine --until-promising` found and stopped on — with a derived status per row: `not yet verified`, `REFUTED (counterexample found)`, `PROVEN (complete Lean proof found)`, or `unresolved (no counterexample, but no automated proof either)`. The status is computed by looking at that candidate's `tool_invocations` and `lean_verifications` rows, not stored directly — the append-only ledger has no update, so "verifying" a discovery never rewrites its original row, it just adds more rows elsewhere that `list` reads back.
+Lists every row in the `discoveries` table — one per candidate that `hanno mine --until-promising` found and stopped on — with a derived status per row: `not yet verified`, `REFUTED (counterexample found)`, `PROVEN (complete Lean proof found)`, or `unresolved (no counterexample, but no automated proof either)`. The status is computed by looking at that candidate's `tool_invocations` and `lean_verifications` rows, not stored directly — the append-only ledger has no update, so "verifying" a discovery never rewrites its original row, it just adds more rows elsewhere that `list` reads back.
 
 ### `hanno discoveries verify [--limit N]`
 
 Deep verification for discoveries that haven't been checked yet (default `N=10`) — the step between "the miner stopped here" and "a human looks at it." Two stages, in cost order, each gating the next:
 
 1. **Counterexample search.** A one-shot Claude call writes a Python program that stress-tests the claim across many concrete cases (hundreds+, including edge cases), run through the same sandboxed `run_code` skill executor used during mining (CPU/memory/output limits, no network, 25s timeout — see `skills/run_code.yaml`) regardless of whether that skill is currently toggled on for live mining. A real counterexample is a definitive, immediate rejection — recorded as a `tool_invocations` row, and proof search is skipped entirely for that candidate.
-2. **Real proof search** (only for survivors of stage 1). Unlike `hanno lean-pilot`'s one-shot `:= by sorry` translation, this is an *interactive* loop: submit a proof attempt, get Lean's actual error back (or, if it compiles but still contains `sorry`, a note that the proof is incomplete), retry — up to `lean_verifier.max_proof_attempts` (default `5`, a separate and larger budget than `max_translation_attempts` since proving is a harder ask than translating). A complete, `sorry`-free proof that compiles writes a second `lean_verifications` row for that candidate with `result="VERIFIED"` — the first time this codebase ever emits that value, since it requires an actual proof, not just a non-trivial statement. Exhausting the attempt budget without one is recorded honestly (`result` left unset) — most hard, genuinely novel conjectures are expected to land here, not get a machine proof; that's not a failure of the pipeline, it's the actual difficulty of the problem.
+2. **Real proof search** (only for survivors of stage 1). Unlike `hanno lean-pilot`'s one-shot `:= by sorry` translation, this is an *interactive* loop: submit a proof attempt, get Lean's actual error back (or, if it compiles but still contains `sorry`, a note that the proof is incomplete), retry — up to `lean_verifier.max_proof_attempts` (default `5`, a separate and larger budget than `max_translation_attempts` since proving is a harder ask than translating). A complete proof that preserves the original theorem and passes the transitive axiom audit writes a second `lean_verifications` row for that candidate with `result="VERIFIED"` — the first time this codebase ever emits that value, since it requires an actual proof, not just a non-trivial statement. Exhausting the attempt budget without one is recorded honestly (`result` left unset) — most hard, genuinely novel conjectures are expected to land here, not get a machine proof; that's not a failure of the pipeline, it's the actual difficulty of the problem.
 
 Same pre-flight checks as `hanno mine --until-promising`: fails fast if the local Lean toolchain isn't set up, and if `skills/run_code.yaml` can't be found. Costs real API tokens (one call per stage per candidate, plus retries) and real wall-clock time (each Lean invocation is ~45-60s, and the proof-search loop can run several) — use `--limit` deliberately.
 
@@ -430,11 +425,11 @@ The `FingerprintEngine` turns a seed or candidate into a **semantic fingerprint*
 2. **Embed** it locally with `sentence-transformers/all-MiniLM-L6-v2`.
 3. **Reduce** the vector to 128 dimensions (raw truncation until 500 fingerprints, then PCA).
 4. **Hash** the compressed vector with SHA-256.
-5. **Compare** the new fingerprint against all existing fingerprints of the same entity pool (seeds vs candidates).
+5. **Compare** full embedding vectors in their common native coordinate system against all existing fingerprints of the same entity pool (seeds vs candidates).
 6. **Classify**:
    - `NOVEL` — no close match.
    - `NEAR_DUPLICATE` — cosine similarity ≥ near-duplicate threshold.
-   - `EXACT_DUPLICATE` — cosine similarity ≥ exact-duplicate threshold, or the SHA-256 hash collides.
+   - `EXACT_DUPLICATE` — cosine similarity ≥ exact-duplicate threshold, using the full embedding vectors.
 
 This is concept-level deduplication: `“Every finite simple group embeds in S_n with bounded degree”` and `“Can every finite simple group be represented in a bounded-degree symmetric group?”` will be flagged as near-duplicates even though the wording differs.
 

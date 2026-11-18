@@ -26,6 +26,7 @@ stdout: which tactic (if any) closes the goal, verified by a real compile,
 trying cheap/likely tactics first and stopping at the first success; for
 `exact?` specifically, the actual term it found, if any.
 """
+
 import pathlib
 import re
 import subprocess
@@ -33,7 +34,10 @@ import sys
 import time
 import uuid
 
-PROJECT_DIR = pathlib.Path(__file__).resolve().parents[2] / "data" / "mathlib_cache"
+from hanno.config import load_config
+
+# Runtime data belongs to the working project, not the installed script directory.
+PROJECT_DIR = pathlib.Path(load_config().lean_verifier.mathlib_cache_path).resolve()
 # Deliberately tight: these are decision procedures / fast automation, not
 # open-ended search -- if one hasn't resolved a small goal in 20s it is
 # almost always stuck rather than about to succeed (observed verbatim:
@@ -59,12 +63,19 @@ def _run_lean(source: str, timeout_s: int) -> tuple[bool, str, str, bool]:
     try:
         proc = subprocess.run(
             ["lake", "env", "lean", str(scratch)],
-            cwd=PROJECT_DIR, capture_output=True, text=True, timeout=timeout_s,
+            cwd=PROJECT_DIR,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
         )
         return proc.returncode == 0, proc.stdout, proc.stderr, False
     except subprocess.TimeoutExpired as e:
-        stdout = e.stdout if isinstance(e.stdout, str) else (e.stdout or b"").decode(errors="replace")
-        stderr = e.stderr if isinstance(e.stderr, str) else (e.stderr or b"").decode(errors="replace")
+        stdout = (
+            e.stdout if isinstance(e.stdout, str) else (e.stdout or b"").decode(errors="replace")
+        )
+        stderr = (
+            e.stderr if isinstance(e.stderr, str) else (e.stderr or b"").decode(errors="replace")
+        )
         return False, stdout, stderr, True
     finally:
         scratch.unlink(missing_ok=True)
@@ -73,15 +84,21 @@ def _run_lean(source: str, timeout_s: int) -> tuple[bool, str, str, bool]:
 def main() -> int:
     raw = sys.stdin.read().strip()
     if not raw:
-        print("[lean_goal_solver: empty input -- provide a standalone Lean theorem statement, no proof body]")
+        print(
+            "[lean_goal_solver: empty input -- provide a standalone Lean theorem statement, no proof body]"
+        )
         return 1
     if not PROJECT_DIR.is_dir():
-        print(f"[lean_goal_solver: Lean project not found at {PROJECT_DIR} -- is the toolchain set up?]")
+        print(
+            f"[lean_goal_solver: Lean project not found at {PROJECT_DIR} -- is the toolchain set up?]"
+        )
         return 1
 
     statement = _strip_existing_proof(raw)
     if not statement:
-        print("[lean_goal_solver: nothing left after stripping the proof body -- provide the statement, e.g. 'theorem goal (n : ℕ) : n ≤ n ^ 17']")
+        print(
+            "[lean_goal_solver: nothing left after stripping the proof body -- provide the statement, e.g. 'theorem goal (n : ℕ) : n ≤ n ^ 17']"
+        )
         return 1
     if "import Mathlib" not in statement:
         statement = "import Mathlib\n\n" + statement
@@ -111,10 +128,14 @@ def main() -> int:
         print(f"WORKS -- `{tactic}` closes this goal (verified by a real compile, {elapsed:.1f}s).")
         if suggestion:
             print(f"  exact? found: exact {suggestion}")
-        print(f"Use `by {tactic}` for this exact sub-goal in your proof -- do not substitute a different tactic for it.")
+        print(
+            f"Use `by {tactic}` for this exact sub-goal in your proof -- do not substitute a different tactic for it."
+        )
         return 0
 
-    print("NONE of the standard closing tactics worked on this goal (each verified by a real compile, not guessed):")
+    print(
+        "NONE of the standard closing tactics worked on this goal (each verified by a real compile, not guessed):"
+    )
     for tactic, status, elapsed, _ in results:
         print(f"  {tactic}: {status} ({elapsed:.1f}s)")
     print(

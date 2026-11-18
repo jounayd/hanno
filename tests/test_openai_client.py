@@ -3,9 +3,10 @@ any other server speaking the same /v1/chat/completions wire format,
 including its real multi-turn tool-calling loop (mirrors AnthropicClient's
 loop shape using this provider's own wire format). Hermetic -- the
 underlying AsyncOpenAI client is replaced with a fake, no real network call."""
+
 from types import SimpleNamespace
 
-import httpx
+import httpx2 as httpx
 import pytest
 from openai import BadRequestError
 
@@ -51,7 +52,11 @@ class FakeMessage:
         d = {"role": "assistant", "content": self.content}
         if self.tool_calls:
             d["tool_calls"] = [
-                {"id": tc.id, "type": tc.type, "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                }
                 for tc in self.tool_calls
             ]
         if exclude_none:
@@ -66,26 +71,34 @@ class FakeToolCall:
         self.function = SimpleNamespace(name=name, arguments=arguments)
 
 
-def _response(content, prompt_tokens=10, completion_tokens=20, finish_reason="stop", tool_calls=None):
+def _response(
+    content, prompt_tokens=10, completion_tokens=20, finish_reason="stop", tool_calls=None
+):
     return SimpleNamespace(
-        choices=[SimpleNamespace(message=FakeMessage(content, tool_calls), finish_reason=finish_reason)],
+        choices=[
+            SimpleNamespace(message=FakeMessage(content, tool_calls), finish_reason=finish_reason)
+        ],
         usage=SimpleNamespace(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens),
     )
 
 
 def _tool_call_response(call_id, name, arguments, **kwargs):
     return _response(
-        content=None, finish_reason="tool_calls",
-        tool_calls=[FakeToolCall(call_id, name, arguments)], **kwargs,
+        content=None,
+        finish_reason="tool_calls",
+        tool_calls=[FakeToolCall(call_id, name, arguments)],
+        **kwargs,
     )
 
 
 def _client_with(responses):
     client = OpenAICompatibleClient(
-        model="deepseek-r1-14b-hanno", max_tokens=2000, base_url="http://localhost:11434/v1",
+        model="deepseek-r1-14b-hanno",
+        max_tokens=2000,
+        base_url="http://localhost:11434/v1",
     )
     fake = FakeAsyncOpenAI(responses)
-    client._client = fake
+    client.__dict__["_client"] = fake
     return client, fake
 
 
@@ -131,7 +144,8 @@ async def test_thinking_budget_tokens_is_a_no_op():
 @pytest.mark.asyncio
 async def test_missing_usage_defaults_to_zero_tokens():
     response = SimpleNamespace(
-        choices=[SimpleNamespace(message=FakeMessage("answer"), finish_reason="stop")], usage=None,
+        choices=[SimpleNamespace(message=FakeMessage("answer"), finish_reason="stop")],
+        usage=None,
     )
     client, fake = _client_with([response])
 
@@ -152,10 +166,12 @@ async def test_close_closes_underlying_client():
 
 @pytest.mark.asyncio
 async def test_tool_call_round_trip_executes_and_feeds_back_result():
-    client, fake = _client_with([
-        _tool_call_response("call_1", "checker", '{"input": "verify this"}'),
-        _response("final answer after checking"),
-    ])
+    client, fake = _client_with(
+        [
+            _tool_call_response("call_1", "checker", '{"input": "verify this"}'),
+            _response("final answer after checking"),
+        ]
+    )
     executed = {}
 
     def executor(name, tool_input):
@@ -163,7 +179,9 @@ async def test_tool_call_round_trip_executes_and_feeds_back_result():
         executed["input"] = tool_input
         return "check passed"
 
-    result = await client.generate("prompt", temperature=0.7, tools=[_skill()], tool_executor=executor)
+    result = await client.generate(
+        "prompt", temperature=0.7, tools=[_skill()], tool_executor=executor
+    )
 
     assert result.text == "final answer after checking"
     assert result.tool_rounds == 1
@@ -177,14 +195,20 @@ async def test_tool_call_round_trip_executes_and_feeds_back_result():
 
 @pytest.mark.asyncio
 async def test_tool_round_budget_exhaustion_forces_finalization():
-    client, fake = _client_with([
-        _tool_call_response("call_1", "checker", '{"input": "a"}'),
-        _tool_call_response("call_2", "checker", '{"input": "b"}'),
-        _response("forced final answer"),
-    ])
+    client, fake = _client_with(
+        [
+            _tool_call_response("call_1", "checker", '{"input": "a"}'),
+            _tool_call_response("call_2", "checker", '{"input": "b"}'),
+            _response("forced final answer"),
+        ]
+    )
 
     result = await client.generate(
-        "prompt", temperature=0.7, tools=[_skill()], tool_executor=lambda n, i: "ok", max_tool_rounds=1,
+        "prompt",
+        temperature=0.7,
+        tools=[_skill()],
+        tool_executor=lambda n, i: "ok",
+        max_tool_rounds=1,
     )
 
     assert result.text == "forced final answer"
@@ -196,18 +220,29 @@ async def test_stale_rounds_force_finalization_before_the_round_budget_is_hit():
     # Parity with AnthropicClient: 2 consecutive rounds that add nothing new
     # force finalization immediately rather than waiting out a much larger
     # max_tool_rounds.
-    client, fake = _client_with([
-        _tool_call_response("call_1", "checker", '{"input": "same check"}'),  # genuinely new
-        _tool_call_response("call_2", "checker", '{"input": "same check"}'),  # repeat -> stale_rounds=1
-        _tool_call_response("call_3", "checker", '{"input": "same check"}'),  # repeat -> stale_rounds=2
-        _tool_call_response("call_4", "checker", '{"input": "same check"}'),  # arrives at threshold -> refused outright
-        _response("forced final answer"),
-    ])
+    client, fake = _client_with(
+        [
+            _tool_call_response("call_1", "checker", '{"input": "same check"}'),  # genuinely new
+            _tool_call_response(
+                "call_2", "checker", '{"input": "same check"}'
+            ),  # repeat -> stale_rounds=1
+            _tool_call_response(
+                "call_3", "checker", '{"input": "same check"}'
+            ),  # repeat -> stale_rounds=2
+            _tool_call_response(
+                "call_4", "checker", '{"input": "same check"}'
+            ),  # arrives at threshold -> refused outright
+            _response("forced final answer"),
+        ]
+    )
     calls = []
 
     result = await client.generate(
-        "prompt", temperature=0.7, tools=[_skill()],
-        tool_executor=lambda n, i: calls.append((n, i)) or "verified", max_tool_rounds=10,
+        "prompt",
+        temperature=0.7,
+        tools=[_skill()],
+        tool_executor=lambda n, i: calls.append((n, i)) or "verified",
+        max_tool_rounds=10,
     )
 
     assert len(calls) == 1  # only the first call was ever genuinely executed
@@ -224,11 +259,13 @@ async def test_repeated_identical_tool_call_is_not_re_executed():
     # Parity with AnthropicClient (hanno/excavator/client.py): a repeated
     # identical tool call must be served from cache, not re-executed, with
     # the model told it's a repeat.
-    client, fake = _client_with([
-        _tool_call_response("call_1", "checker", '{"input": "same check"}'),
-        _tool_call_response("call_2", "checker", '{"input": "same check"}'),
-        _response("final"),
-    ])
+    client, fake = _client_with(
+        [
+            _tool_call_response("call_1", "checker", '{"input": "same check"}'),
+            _tool_call_response("call_2", "checker", '{"input": "same check"}'),
+            _response("final"),
+        ]
+    )
     calls = []
 
     def executor(name, tool_input):
@@ -236,7 +273,11 @@ async def test_repeated_identical_tool_call_is_not_re_executed():
         return "verified: no counterexample"
 
     result = await client.generate(
-        "prompt", temperature=0.7, tools=[_skill()], tool_executor=executor, max_tool_rounds=3,
+        "prompt",
+        temperature=0.7,
+        tools=[_skill()],
+        tool_executor=executor,
+        max_tool_rounds=3,
     )
 
     assert calls == [("checker", {"input": "same check"})]  # executed only once
@@ -249,16 +290,21 @@ async def test_repeated_identical_tool_call_is_not_re_executed():
 
 @pytest.mark.asyncio
 async def test_different_inputs_to_the_same_tool_are_not_treated_as_repeats():
-    client, fake = _client_with([
-        _tool_call_response("call_1", "checker", '{"input": "check A"}'),
-        _tool_call_response("call_2", "checker", '{"input": "check B"}'),
-        _response("final"),
-    ])
+    client, fake = _client_with(
+        [
+            _tool_call_response("call_1", "checker", '{"input": "check A"}'),
+            _tool_call_response("call_2", "checker", '{"input": "check B"}'),
+            _response("final"),
+        ]
+    )
     calls = []
 
     result = await client.generate(
-        "prompt", temperature=0.7, tools=[_skill()],
-        tool_executor=lambda n, i: calls.append((n, i)) or "ok", max_tool_rounds=3,
+        "prompt",
+        temperature=0.7,
+        tools=[_skill()],
+        tool_executor=lambda n, i: calls.append((n, i)) or "ok",
+        max_tool_rounds=3,
     )
 
     assert len(calls) == 2  # both genuinely executed, not treated as a repeat
@@ -267,17 +313,21 @@ async def test_different_inputs_to_the_same_tool_are_not_treated_as_repeats():
 
 @pytest.mark.asyncio
 async def test_malformed_tool_arguments_json_does_not_crash():
-    client, fake = _client_with([
-        _tool_call_response("call_1", "checker", "not valid json{{{"),
-        _response("answer despite malformed args"),
-    ])
+    client, fake = _client_with(
+        [
+            _tool_call_response("call_1", "checker", "not valid json{{{"),
+            _response("answer despite malformed args"),
+        ]
+    )
     received = {}
 
     def executor(name, tool_input):
         received["input"] = tool_input
         return "ok"
 
-    result = await client.generate("prompt", temperature=0.7, tools=[_skill()], tool_executor=executor)
+    result = await client.generate(
+        "prompt", temperature=0.7, tools=[_skill()], tool_executor=executor
+    )
 
     assert result.text == "answer despite malformed args"
     assert received["input"] == {"input": "not valid json{{{"}
@@ -287,7 +337,9 @@ async def test_malformed_tool_arguments_json_does_not_crash():
 async def test_tools_rejected_by_backend_retries_without_them():
     fake_response = httpx.Response(400, request=httpx.Request("POST", "http://localhost:11434/v1"))
     tool_error = BadRequestError(
-        message="400: model 'deepseek-r1' does not support tools", response=fake_response, body=None,
+        message="400: model 'deepseek-r1' does not support tools",
+        response=fake_response,
+        body=None,
     )
 
     class FlakyCompletions:
@@ -303,11 +355,15 @@ async def test_tools_rejected_by_backend_retries_without_them():
                 raise tool_error
             return self._responses.pop(0)
 
-    client = OpenAICompatibleClient(model="deepseek-r1", max_tokens=2000, base_url="http://localhost:11434/v1")
+    client = OpenAICompatibleClient(
+        model="deepseek-r1", max_tokens=2000, base_url="http://localhost:11434/v1"
+    )
     completions = FlakyCompletions([_response("answer without tools")])
-    client._client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    client.__dict__["_client"] = SimpleNamespace(chat=SimpleNamespace(completions=completions))
 
-    result = await client.generate("prompt", temperature=0.7, tools=[_skill()], tool_executor=lambda n, i: "ok")
+    result = await client.generate(
+        "prompt", temperature=0.7, tools=[_skill()], tool_executor=lambda n, i: "ok"
+    )
 
     assert result.text == "answer without tools"
     assert completions.calls == 2
@@ -319,14 +375,20 @@ async def test_tools_rejected_by_backend_retries_without_them():
 @pytest.mark.asyncio
 async def test_unrelated_bad_request_error_is_not_swallowed():
     fake_response = httpx.Response(400, request=httpx.Request("POST", "http://localhost:11434/v1"))
-    other_error = BadRequestError(message="400: invalid model name", response=fake_response, body=None)
+    other_error = BadRequestError(
+        message="400: invalid model name", response=fake_response, body=None
+    )
 
     class AlwaysFailingCompletions:
         async def create(self, **kwargs):
             raise other_error
 
-    client = OpenAICompatibleClient(model="does-not-exist", max_tokens=2000, base_url="http://localhost:11434/v1")
-    client._client = SimpleNamespace(chat=SimpleNamespace(completions=AlwaysFailingCompletions()))
+    client = OpenAICompatibleClient(
+        model="does-not-exist", max_tokens=2000, base_url="http://localhost:11434/v1"
+    )
+    client.__dict__["_client"] = SimpleNamespace(
+        chat=SimpleNamespace(completions=AlwaysFailingCompletions())
+    )
 
     with pytest.raises(BadRequestError):
         await client.generate("prompt", temperature=0.7)

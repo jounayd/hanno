@@ -1,6 +1,7 @@
 """hanno.lean.checker: typecheck + exact?/simp triviality check via `lake env
 lean` subprocess calls. Hermetic -- subprocess.run is stubbed, so this suite
 never needs the real Lean toolchain (that only runs in the manual pilot)."""
+
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,7 +16,11 @@ class FakeCompletedProcess:
 
 
 def test_statement_that_fails_to_typecheck_is_malformed(tmp_path):
-    with patch.object(checker.subprocess, "run", return_value=FakeCompletedProcess(1, stderr="error: unknown identifier")):
+    with patch.object(
+        checker.subprocess,
+        "run",
+        return_value=FakeCompletedProcess(1, stderr="error: unknown identifier"),
+    ):
         result = checker.check_statement("theorem foo : Bogus := by sorry", tmp_path, timeout_s=10)
 
     assert result.compiles is False
@@ -38,10 +43,14 @@ def test_statement_that_survives_both_tactics_is_not_trivial(tmp_path):
     def fake_run(cmd, **kwargs):
         calls["n"] += 1
         # Call 1: sorry typecheck succeeds. Calls 2-3: exact?/simp both fail.
-        return FakeCompletedProcess(0) if calls["n"] == 1 else FakeCompletedProcess(1, stderr="failed")
+        return (
+            FakeCompletedProcess(0) if calls["n"] == 1 else FakeCompletedProcess(1, stderr="failed")
+        )
 
     with patch.object(checker.subprocess, "run", side_effect=fake_run):
-        result = checker.check_statement("theorem foo : NonTrivial := by sorry", tmp_path, timeout_s=10)
+        result = checker.check_statement(
+            "theorem foo : NonTrivial := by sorry", tmp_path, timeout_s=10
+        )
 
     assert result.compiles is True
     assert result.trivial_by is None
@@ -52,7 +61,8 @@ def test_timeout_is_reported_and_does_not_raise(tmp_path):
     import subprocess as real_subprocess
 
     with patch.object(
-        checker.subprocess, "run",
+        checker.subprocess,
+        "run",
         side_effect=real_subprocess.TimeoutExpired(cmd="lake", timeout=10, output="", stderr=""),
     ):
         result = checker.check_statement("theorem foo : True := by sorry", tmp_path, timeout_s=10)

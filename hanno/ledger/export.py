@@ -4,20 +4,45 @@ Used by both `hanno trace --json` (hanno/cli/commands/trace.py) and the
 live web UI's `/api/seeds/{id}/trace` endpoint, so the two surfaces can
 never drift out of sync with each other.
 """
+
 from __future__ import annotations
 
 import json as json_module
+
+from hanno.ledger.repository import Ledger
+from hanno.verification.status import verification_status
 
 # Columns handed to the mind-map viewer. Kept as an explicit allowlist, not
 # `dict(row)` wholesale, so the JSON export has a stable, documented shape
 # independent of internal ledger column additions.
 MINDMAP_CANDIDATE_FIELDS = [
-    "id", "iteration", "refined_from_candidate_id", "prompt_variant", "temperature",
-    "reasoning_effort", "steering_hint", "parse_status", "parse_error",
-    "core_claim", "formal_statement", "intuition", "connections", "identified_weaknesses",
-    "duplicate_status", "exploration_signal", "claim_type", "numeric_check",
-    "numeric_check_result", "path_score", "self_rated_novelty", "self_rated_rigor",
-    "prompt_text", "raw_text", "input_tokens", "output_tokens", "generated_at",
+    "id",
+    "iteration",
+    "refined_from_candidate_id",
+    "prompt_variant",
+    "temperature",
+    "reasoning_effort",
+    "steering_hint",
+    "parse_status",
+    "parse_error",
+    "core_claim",
+    "formal_statement",
+    "intuition",
+    "connections",
+    "identified_weaknesses",
+    "duplicate_status",
+    "exploration_signal",
+    "claim_type",
+    "numeric_check",
+    "numeric_check_result",
+    "path_score",
+    "self_rated_novelty",
+    "self_rated_rigor",
+    "prompt_text",
+    "raw_text",
+    "input_tokens",
+    "output_tokens",
+    "generated_at",
     "suggested_seeds",
 ]
 
@@ -45,7 +70,7 @@ def candidate_for_export(c: dict) -> dict:
     return out
 
 
-def build_trace_export(seed_row: dict, status: str, candidates: list[dict], ledger) -> dict:
+def build_trace_export(seed_row: dict, status: str, candidates: list[dict], ledger: Ledger) -> dict:
     """The full JSON payload for one seed's mining trace: seed metadata plus
     every candidate (with its tool invocations, Lean triviality checks, and
     discovery/deep-verification status), in the shape mindmap.js expects."""
@@ -58,37 +83,57 @@ def build_trace_export(seed_row: dict, status: str, candidates: list[dict], ledg
         entry = candidate_for_export(c)
         entry["tool_invocations"] = [
             {
-                "skill_name": inv["skill_name"], "input_text": inv["input_text"],
-                "stdout": inv["stdout"], "stderr": inv["stderr"],
-                "exit_code": inv["exit_code"], "duration_ms": inv["duration_ms"],
-                "timed_out": bool(inv["timed_out"]), "invoked_at": inv["invoked_at"],
+                "skill_name": inv["skill_name"],
+                "phase": inv["phase"],
+                "input_text": inv["input_text"],
+                "stdout": inv["stdout"],
+                "stderr": inv["stderr"],
+                "exit_code": inv["exit_code"],
+                "duration_ms": inv["duration_ms"],
+                "timed_out": bool(inv["timed_out"]),
+                "invoked_at": inv["invoked_at"],
             }
             for inv in ledger.list_tool_invocations_by_candidate(c["id"])
         ]
         entry["lean_verifications"] = [
             {
-                "result": lv["result"], "lean_code": lv["lean_code"],
+                "result": lv["result"],
+                "lean_code": lv["lean_code"],
                 "translation_attempt_number": lv["translation_attempt_number"],
-                "lean_stdout": lv["lean_stdout"], "lean_stderr": lv["lean_stderr"],
-                "execution_time_ms": lv["execution_time_ms"], "verified_at": lv["verified_at"],
+                "lean_stdout": lv["lean_stdout"],
+                "lean_stderr": lv["lean_stderr"],
+                "execution_time_ms": lv["execution_time_ms"],
+                "verified_at": lv["verified_at"],
             }
             for lv in ledger.list_lean_verifications_by_candidate(c["id"])
         ]
         d = discoveries_by_candidate.get(c["id"])
-        entry["discovery"] = None if d is None else {
-            "verification_result": d["verification_result"],
-            "lean_verified": None if d["lean_verified"] is None else bool(d["lean_verified"]),
-            "human_reviewed": bool(d["human_reviewed"]),
-            "human_verdict": d["human_verdict"],
-            "human_notes": d["human_notes"],
-            "created_at": d["created_at"],
-        }
+        entry["discovery"] = (
+            None
+            if d is None
+            else {
+                "verification_result": d["verification_result"],
+                "lean_verified": None if d["lean_verified"] is None else bool(d["lean_verified"]),
+                "human_reviewed": bool(d["human_reviewed"]),
+                "human_verdict": d["human_verdict"],
+                "human_notes": d["human_notes"],
+                "created_at": d["created_at"],
+            }
+        )
+        if entry["discovery"] is not None:
+            entry["discovery"]["status"] = verification_status(
+                entry["tool_invocations"], entry["lean_verifications"]
+            )
         exported.append(entry)
     return {
         "seed": {
-            "id": seed_row["id"], "text": seed_row["text"], "domain": seed_row["domain"],
-            "type": seed_row["type"], "status": status,
-            "submitted_at": seed_row["submitted_at"], "submitter_id": seed_row["submitter_id"],
+            "id": seed_row["id"],
+            "text": seed_row["text"],
+            "domain": seed_row["domain"],
+            "type": seed_row["type"],
+            "status": status,
+            "submitted_at": seed_row["submitted_at"],
+            "submitter_id": seed_row["submitter_id"],
         },
         "candidates": exported,
     }

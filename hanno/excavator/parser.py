@@ -6,6 +6,7 @@ at high temperature. Parse defensively, never raise — always return enough
 information to persist the raw output and the parse outcome. Every raw
 candidate is persisted regardless of parse success (Rule 2: failures are data).
 """
+
 from __future__ import annotations
 
 import json
@@ -51,7 +52,7 @@ def _extract_json_object(text: str) -> str:
     end = text.rfind("}")
     if start == -1 or end == -1 or end <= start:
         return text
-    return text[start:end + 1]
+    return text[start : end + 1]
 
 
 def _repair_invalid_backslash_escapes(text: str) -> str:
@@ -60,6 +61,7 @@ def _repair_invalid_backslash_escapes(text: str) -> str:
         if len(token) == 5 or token in _ALWAYS_VALID_SINGLE_ESCAPES:
             return match.group(0)  # genuine \uXXXX, \\, \", or \/ -- leave as-is
         return "\\\\" + token  # everything else: double the backslash
+
     return _ESCAPE_TOKEN_RE.sub(_fix, text)
 
 
@@ -127,9 +129,12 @@ def parse_candidate_json(raw_text: str) -> tuple[dict | None, str | None]:
 
     for field in ("self_rated_novelty", "self_rated_rigor"):
         try:
-            value = float(parsed.get(field))
+            raw_value = parsed.get(field)
+            value = float(raw_value) if raw_value is not None else 0.5
         except (TypeError, ValueError):
-            value = 0.5  # neutral default: a drifted/missing self-rating shouldn't fail the candidate
+            value = (
+                0.5  # neutral default: a drifted/missing self-rating shouldn't fail the candidate
+            )
         parsed[field] = max(0.0, min(1.0, value))
 
     # A drifted claim_type coerces to "structural" — the neutral type with no

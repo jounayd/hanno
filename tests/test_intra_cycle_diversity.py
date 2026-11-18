@@ -7,6 +7,7 @@ zero visibility into each other. This tests both fixes:
   2. wave_size (opt-in, default 0/off) stages the cycle so later waves see
      earlier waves' own core_claims from the SAME cycle, not just prior cycles.
 """
+
 import json
 
 import pytest
@@ -30,23 +31,33 @@ class RecordingFakeClient:
         self.calls = 0
         self.prompts_seen: list[str] = []
 
-    async def generate(self, prompt: str, temperature: float, max_tokens=None, thinking_budget_tokens=None, cache_prefix=None) -> GenerationResult:
+    async def generate(
+        self,
+        prompt: str,
+        temperature: float,
+        max_tokens=None,
+        thinking_budget_tokens=None,
+        cache_prefix=None,
+        **kwargs,
+    ) -> GenerationResult:
         self.calls += 1
         self.prompts_seen.append(prompt)
-        text = json.dumps({
-            "domain": "mathematics",
-            "core_claim": f"Distinct generated claim number {self.calls} about additive number theory.",
-            "formal_statement": "forall x, P(x)",
-            "intuition": "intuition text",
-            "connections": ["algebra"],
-            "self_assessed_novelty": "n/a",
-            "identified_weaknesses": "n/a",
-            "exploration_signal": "continue",
-            "suggested_seeds": [],
-            "self_rated_novelty": 0.5,
-            "self_rated_rigor": 0.5,
-            "claim_type": "structural",
-        })
+        text = json.dumps(
+            {
+                "domain": "mathematics",
+                "core_claim": f"Distinct generated claim number {self.calls} about additive number theory.",
+                "formal_statement": "forall x, P(x)",
+                "intuition": "intuition text",
+                "connections": ["algebra"],
+                "self_assessed_novelty": "n/a",
+                "identified_weaknesses": "n/a",
+                "exploration_signal": "continue",
+                "suggested_seeds": [],
+                "self_rated_novelty": 0.5,
+                "self_rated_rigor": 0.5,
+                "claim_type": "structural",
+            }
+        )
         return GenerationResult(text=text, input_tokens=10, output_tokens=10)
 
     async def close(self) -> None:
@@ -55,10 +66,10 @@ class RecordingFakeClient:
 
 @pytest.fixture
 def ledger(tmp_path):
-    l = Ledger.connect(tmp_path / "test.db")
-    l.init_schema()
-    yield l
-    l.close()
+    db = Ledger.connect(tmp_path / "test.db")
+    db.init_schema()
+    yield db
+    db.close()
 
 
 @pytest.fixture
@@ -69,7 +80,11 @@ def fingerprint_engine(ledger):
 
 @pytest.fixture
 def seed(ledger):
-    s = Seed(text="a seed about additive number theory and unit fractions", domain="mathematics", type="human")
+    s = Seed(
+        text="a seed about additive number theory and unit fractions",
+        domain="mathematics",
+        type="human",
+    )
     ledger.insert_seed(s)
     return s
 
@@ -107,7 +122,9 @@ async def test_default_wave_size_zero_gives_no_same_cycle_context(ledger, finger
 
 
 @pytest.mark.asyncio
-async def test_wave_size_gives_later_candidates_same_cycle_context(ledger, fingerprint_engine, seed):
+async def test_wave_size_gives_later_candidates_same_cycle_context(
+    ledger, fingerprint_engine, seed
+):
     config = HannoConfig()
     config.excavator.daily_spend_limit_usd = 1000.0
     config.excavator.wave_size = 2  # 6 candidates -> 3 sequential waves of 2
