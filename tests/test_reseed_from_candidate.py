@@ -1,6 +1,7 @@
 """Human reseed: submitting a new seed derived from a specific mind-map
 candidate, tracked via the append-only reseed_events ledger table with
 correctly resolved chain_depth/original_seed_id across multi-hop chains."""
+
 import pytest
 
 from hanno.config import FingerprintConfig
@@ -27,16 +28,17 @@ RESEED_TEXT_2 = (
 
 @pytest.fixture
 def ledger(tmp_path):
-    l = Ledger.connect(tmp_path / "test.db")
-    l.init_schema()
-    yield l
-    l.close()
+    db = Ledger.connect(tmp_path / "test.db")
+    db.init_schema()
+    yield db
+    db.close()
 
 
 @pytest.fixture
 def manager(ledger):
     config = FingerprintConfig(
-        embedding_model=TEST_MODEL, compressed_dimensions=384,
+        embedding_model=TEST_MODEL,
+        compressed_dimensions=384,
         similarity_threshold_near_duplicate=0.75,
     )
     engine = FingerprintEngine(ledger, config)
@@ -44,13 +46,19 @@ def manager(ledger):
 
 
 def make_candidate(ledger, seed_id, **overrides):
-    fields = dict(
-        seed_id=seed_id, domain="mathematics", temperature=0.7,
-        prompt_variant="baseline", model="claude-test",
-        prompt_text="p", raw_text="r", parse_status="ok",
-        core_claim="claim", formal_statement="statement",
-        suggested_seeds=["a follow-up seed", "another follow-up seed"],
-    )
+    fields = {
+        "seed_id": seed_id,
+        "domain": "mathematics",
+        "temperature": 0.7,
+        "prompt_variant": "baseline",
+        "model": "claude-test",
+        "prompt_text": "p",
+        "raw_text": "r",
+        "parse_status": "ok",
+        "core_claim": "claim",
+        "formal_statement": "statement",
+        "suggested_seeds": ["a follow-up seed", "another follow-up seed"],
+    }
     fields.update(overrides)
     c = Candidate(**fields)
     ledger.insert_candidate(c)
@@ -75,7 +83,10 @@ def test_reseed_event_is_recorded_with_expected_fields(manager, ledger):
     candidate = make_candidate(ledger, submit.seed_id)
 
     result = manager.reseed_from_candidate(
-        candidate.id, RESEED_TEXT_1, domain="mathematics", operator_id="jounayd",
+        candidate.id,
+        RESEED_TEXT_1,
+        domain="mathematics",
+        operator_id="jounayd",
     )
 
     events = ledger.list_reseed_events_by_seed(submit.seed_id)
@@ -93,15 +104,21 @@ def test_second_hop_reseed_inherits_original_seed_and_increments_depth(manager, 
     submit = manager.submit(SEED_A, domain="mathematics")
     candidate_1 = make_candidate(ledger, submit.seed_id)
 
-    first_reseed = manager.reseed_from_candidate(candidate_1.id, RESEED_TEXT_1, domain="mathematics")
+    first_reseed = manager.reseed_from_candidate(
+        candidate_1.id, RESEED_TEXT_1, domain="mathematics"
+    )
     assert first_reseed.chain_depth == 1
 
     # A second reseed off a candidate mined FROM the first reseed's new seed.
     candidate_2 = make_candidate(ledger, first_reseed.seed_id)
-    second_reseed = manager.reseed_from_candidate(candidate_2.id, RESEED_TEXT_2, domain="mathematics")
+    second_reseed = manager.reseed_from_candidate(
+        candidate_2.id, RESEED_TEXT_2, domain="mathematics"
+    )
 
     assert second_reseed.ok
-    assert second_reseed.original_seed_id == submit.seed_id  # still the root, not first_reseed.seed_id
+    assert (
+        second_reseed.original_seed_id == submit.seed_id
+    )  # still the root, not first_reseed.seed_id
     assert second_reseed.chain_depth == 2
 
     events = ledger.list_reseed_events_by_seed(first_reseed.seed_id)

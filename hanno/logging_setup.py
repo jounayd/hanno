@@ -1,4 +1,5 @@
 """Structured logging: console (human-readable) + rotating file (JSON lines)."""
+
 from __future__ import annotations
 
 import json

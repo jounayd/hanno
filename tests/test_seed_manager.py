@@ -1,5 +1,6 @@
 """SeedManager integration with the Fingerprint Engine for concept-level
 seed uniqueness (flagged, never auto-rejected, per General-spec.txt:343-347)."""
+
 import pytest
 
 from hanno.config import FingerprintConfig
@@ -25,10 +26,10 @@ MATH_SEED_B = (
 
 @pytest.fixture
 def ledger(tmp_path):
-    l = Ledger.connect(tmp_path / "test.db")
-    l.init_schema()
-    yield l
-    l.close()
+    db = Ledger.connect(tmp_path / "test.db")
+    db.init_schema()
+    yield db
+    db.close()
 
 
 @pytest.fixture
@@ -38,7 +39,8 @@ def manager(ledger):
     # Threshold lowered per General-spec.txt:585-592 ("a parameter, not a
     # fixed truth") — see the identical comment in test_fingerprint_engine.py.
     config = FingerprintConfig(
-        embedding_model=TEST_MODEL, compressed_dimensions=384,
+        embedding_model=TEST_MODEL,
+        compressed_dimensions=384,
         similarity_threshold_near_duplicate=0.75,
     )
     engine = FingerprintEngine(ledger, config)
@@ -59,6 +61,7 @@ def test_paraphrased_seed_is_flagged_not_rejected(manager):
     assert second.ok  # never auto-rejected
     assert second.duplicate_classification in ("NEAR_DUPLICATE", "EXACT_DUPLICATE")
     assert second.duplicate_of_seed_id == first.seed_id
+    assert second.feedback is not None
     assert "flagged, not rejected" in second.feedback
 
 

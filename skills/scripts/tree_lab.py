@@ -16,6 +16,7 @@ as code. Three operations, selected by the "op" field of the stdin JSON:
   {"op": "check_labeling", "edges": [[u,v],...], "labels": {"v": int}}
       Verify a specific labeling (same verdict shape as graceful_check).
 """
+
 import json
 import random
 import sys
@@ -26,13 +27,15 @@ MAX_COUNT = 100
 DEFAULT_BUDGET_MS = 8000
 
 
-def parse_edges(raw):
+def parse_edges(
+    raw: list[list[object]] | list[tuple[str, str]],
+) -> tuple[list[tuple[str, str]], list[str]]:
     edges = [(str(u), str(v)) for u, v in raw]
     vertices = sorted({x for e in edges for x in e})
     return edges, vertices
 
 
-def build_adjacency(edges, vertices):
+def build_adjacency(edges: list[tuple[str, str]], vertices: list[str]) -> dict[str, list[str]]:
     adj = {v: [] for v in vertices}
     for u, v in edges:
         adj[u].append(v)
@@ -40,7 +43,7 @@ def build_adjacency(edges, vertices):
     return adj
 
 
-def is_tree(edges, vertices):
+def is_tree(edges: list[tuple[str, str]], vertices: list[str]) -> bool:
     if not vertices or len(edges) != len(vertices) - 1:
         return False
     adj = build_adjacency(edges, vertices)
@@ -55,7 +58,7 @@ def is_tree(edges, vertices):
     return len(seen) == len(vertices)
 
 
-def check_labeling(edges, labels):
+def check_labeling(edges: list[tuple[str, str]], labels: dict[str, int]) -> dict:
     vertices = sorted({x for e in edges for x in e} | set(labels.keys()))
     n = len(vertices)
     missing = [v for v in vertices if v not in labels]
@@ -67,14 +70,17 @@ def check_labeling(edges, labels):
     labels_valid = label_values == list(range(n))
     edge_labels_valid = edge_labels == list(range(1, n))
     return {
-        "n_vertices": n, "n_edges": len(edges), "is_tree": tree,
-        "labels_valid": labels_valid, "edge_labels": edge_labels,
+        "n_vertices": n,
+        "n_edges": len(edges),
+        "is_tree": tree,
+        "labels_valid": labels_valid,
+        "edge_labels": edge_labels,
         "edge_labels_valid": edge_labels_valid,
         "graceful": bool(tree and labels_valid and edge_labels_valid),
     }
 
 
-def find_labeling(edges, budget_ms):
+def find_labeling(edges: list[list[object]] | list[tuple[str, str]], budget_ms: int) -> dict:
     edges, vertices = parse_edges(edges)
     if not is_tree(edges, vertices):
         return {"error": "input graph is not a tree (must be connected with n-1 edges)"}
@@ -103,7 +109,7 @@ def find_labeling(edges, budget_ms):
     class Budget(Exception):
         pass
 
-    def backtrack(idx):
+    def backtrack(idx: int) -> bool:
         if time.monotonic() > deadline:
             raise Budget
         if idx == n:
@@ -130,9 +136,15 @@ def find_labeling(edges, budget_ms):
     try:
         found = backtrack(0)
     except Budget:
-        return {"found": False, "reason": f"budget exhausted after {budget_ms}ms — larger budget_ms may still find one"}
+        return {
+            "found": False,
+            "reason": f"budget exhausted after {budget_ms}ms — larger budget_ms may still find one",
+        }
     if not found:
-        return {"found": False, "reason": "search space exhausted — this tree has NO graceful labeling"}
+        return {
+            "found": False,
+            "reason": "search space exhausted — this tree has NO graceful labeling",
+        }
     return {
         "found": True,
         "labels": dict(sorted(assignment.items())),
@@ -140,8 +152,9 @@ def find_labeling(edges, budget_ms):
     }
 
 
-def prufer_to_edges(seq, n):
+def prufer_to_edges(seq: list[int], n: int) -> list[list[str]]:
     import heapq
+
     degree = [1] * n
     for x in seq:
         degree[x] += 1
@@ -160,7 +173,7 @@ def prufer_to_edges(seq, n):
     return edges
 
 
-def random_trees(n, count, seed):
+def random_trees(n: int, count: int, seed: int | None) -> dict:
     if not (2 <= n <= MAX_N):
         return {"error": f"n must be between 2 and {MAX_N}"}
     if not (1 <= count <= MAX_COUNT):
@@ -170,8 +183,13 @@ def random_trees(n, count, seed):
     for _ in range(count):
         seq = [rng.randrange(n) for _ in range(n - 2)]
         trees.append({"edges": prufer_to_edges(seq, n)})
-    return {"n": n, "count": count, "seed": seed, "trees": trees,
-            "note": "uniform over LABELED trees (Prüfer); isomorphic shapes may repeat"}
+    return {
+        "n": n,
+        "count": count,
+        "seed": seed,
+        "trees": trees,
+        "note": "uniform over LABELED trees (Prüfer); isomorphic shapes may repeat",
+    }
 
 
 def main() -> int:
@@ -192,7 +210,9 @@ def main() -> int:
             labels = {str(k): int(v) for k, v in req["labels"].items()}
             out = check_labeling(edges, labels)
         else:
-            out = {"error": f"unknown op {op!r}: use find_labeling, random_trees, or check_labeling"}
+            out = {
+                "error": f"unknown op {op!r}: use find_labeling, random_trees, or check_labeling"
+            }
     except (KeyError, TypeError, ValueError) as e:
         out = {"error": f"bad arguments for op {op!r}: {e}"}
 

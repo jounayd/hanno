@@ -1,4 +1,5 @@
 """ExcavatorPipeline: orchestrates one excavation cycle (Step 3, math only)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -17,18 +18,30 @@ from hanno.excavator.client import ModelClient
 from hanno.excavator.client_factory import build_client
 from hanno.excavator.numeric_check import evaluate_numeric_check
 from hanno.excavator.parser import parse_candidate_json
-from hanno.excavator.prompts import ALL_VARIANTS, STEERING_HINTS, build_prompt, build_refined_seed_text
+from hanno.excavator.prompts import (
+    ALL_VARIANTS,
+    STEERING_HINTS,
+    build_prompt,
+    build_refined_seed_text,
+)
 from hanno.excavator.scoring import compute_path_score
 from hanno.excavator.spend_tracker import SpendLimitExceeded, SpendTracker, estimate_cost_usd
 from hanno.fingerprint.engine import FingerprintEngine
 from hanno.fingerprint.similarity import cosine_similarity
-from hanno.ledger.models import (
-    ArmScoreEvent, Candidate, Discovery, ExcavationCycle, LeanVerification, SeedStatEvent,
-    ToolInvocation, new_id, now_iso,
-)
-from hanno.ledger.repository import Ledger
 from hanno.lean.autoformalize import autoformalize_with_retry
 from hanno.lean.checker import classify_result
+from hanno.ledger.models import (
+    ArmScoreEvent,
+    Candidate,
+    Discovery,
+    ExcavationCycle,
+    LeanVerification,
+    SeedStatEvent,
+    ToolInvocation,
+    new_id,
+    now_iso,
+)
+from hanno.ledger.repository import Ledger
 from hanno.logging_setup import get_logger
 from hanno.skills.registry import SkillDefinition
 from hanno.skills.runner import format_for_model, run_skill
@@ -148,22 +161,33 @@ def _round_robin_plan(n_candidates: int, model: str, temperatures: list[float]) 
     i = 0
     while len(plan) < n_candidates:
         temperature, variant = grid[i % len(grid)]
-        plan.append(Arm(model=model, temperature=temperature, prompt_variant=variant, reasoning_effort="standard"))
+        plan.append(
+            Arm(
+                model=model,
+                temperature=temperature,
+                prompt_variant=variant,
+                reasoning_effort="standard",
+            )
+        )
         i += 1
     return plan[:n_candidates]
 
 
 class ExcavatorPipeline:
     def __init__(
-        self, ledger: Ledger, config: HannoConfig, fingerprint_engine: FingerprintEngine,
-        client: ModelClient | None = None, skills: list[SkillDefinition] | None = None,
-    ):
+        self,
+        ledger: Ledger,
+        config: HannoConfig,
+        fingerprint_engine: FingerprintEngine,
+        client: ModelClient | None = None,
+        skills: list[SkillDefinition] | None = None,
+    ) -> None:
         self._ledger = ledger
         self._config = config
         self._fingerprint_engine = fingerprint_engine
         self._skills = skills or []
         self._skills_by_name = {s.name: s for s in self._skills}
-        self._client = client or build_client(config, api_key=None)
+        self._client = client or build_client(config, api_key=None, ledger=ledger)
 
     def _build_plan(self, n_candidates: int) -> list[Arm]:
         cfg = self._config.excavator
@@ -171,20 +195,29 @@ class ExcavatorPipeline:
             return _round_robin_plan(n_candidates, cfg.model, cfg.temperatures)
 
         arms = build_arm_space(
-            cfg.model, cfg.temperatures, list(ALL_VARIANTS.keys()), cfg.reasoning_efforts,
+            cfg.model,
+            cfg.temperatures,
+            list(ALL_VARIANTS.keys()),
+            cfg.reasoning_efforts,
         )
         arm_stats = self._ledger.get_arm_stats(MATH_DOMAIN)
         return select_plan(n_candidates, arms, arm_stats, cfg.ucb1_exploration_constant)
 
     def _refresh_already_explored(self, seed_id: str, limit: int) -> list[str]:
         claims = [
-            c["core_claim"] for c in self._ledger.list_candidates_by_seed(seed_id) if c["core_claim"]
+            c["core_claim"]
+            for c in self._ledger.list_candidates_by_seed(seed_id)
+            if c["core_claim"]
         ]
         return claims[-limit:]
 
     async def run_cycle(
-        self, seed_id: str, seed_text: str, n_candidates: int,
-        iteration: int = 1, refined_from_candidate_id: str | None = None,
+        self,
+        seed_id: str,
+        seed_text: str,
+        n_candidates: int,
+        iteration: int = 1,
+        refined_from_candidate_id: str | None = None,
     ) -> CycleResult:
         started_at = now_iso()
         cfg = self._config.excavator
@@ -195,6 +228,7 @@ class ExcavatorPipeline:
         # practice on a heavily-studied seed) -- costs nothing extra, no arm
         # bookkeeping, just prompt content.
         hints = [STEERING_HINTS[i % len(STEERING_HINTS)] for i in range(len(plan))]
+        usage_accounted = bool(getattr(self._client, "usage_accounted", False))
         spend_tracker = SpendTracker(self._ledger, cfg.daily_spend_limit_usd)
         semaphore = asyncio.Semaphore(cfg.max_parallel_calls if cfg.parallel_execution else 1)
         result = CycleResult(seed_id=seed_id, candidates_requested=n_candidates)
@@ -207,9 +241,13 @@ class ExcavatorPipeline:
         def _record_arm_score(arm: Arm, candidate_id: str, score: float) -> None:
             self._ledger.insert_arm_score_event(
                 ArmScoreEvent(
-                    domain=MATH_DOMAIN, model=arm.model, temperature=arm.temperature,
-                    prompt_variant=arm.prompt_variant, reasoning_effort=arm.reasoning_effort,
-                    candidate_id=candidate_id, score=score,
+                    domain=MATH_DOMAIN,
+                    model=arm.model,
+                    temperature=arm.temperature,
+                    prompt_variant=arm.prompt_variant,
+                    reasoning_effort=arm.reasoning_effort,
+                    candidate_id=candidate_id,
+                    score=score,
                 )
             )
             result.total_path_score += score
@@ -218,7 +256,8 @@ class ExcavatorPipeline:
         async def process_one(arm: Arm, steering_hint: str) -> None:
             async with semaphore:
                 try:
-                    spend_tracker.check_before_call()
+                    if not usage_accounted:
+                        spend_tracker.check_before_call()
                 except SpendLimitExceeded as e:
                     result.halted_on_spend_limit = True
                     logger.warning(str(e))
@@ -228,11 +267,16 @@ class ExcavatorPipeline:
                     [(s.name, s.description) for s in self._skills] if self._skills else None
                 )
                 prompt = build_prompt(
-                    seed_text, arm.prompt_variant, already_explored, steering_hint,
+                    seed_text,
+                    arm.prompt_variant,
+                    already_explored,
+                    steering_hint,
                     available_tools=available_tools,
                 )
                 is_deep = arm.reasoning_effort == REASONING_EFFORT_DEEP
-                max_tokens = cfg.deep_reasoning_max_tokens if is_deep else cfg.max_tokens_per_candidate
+                max_tokens = (
+                    cfg.deep_reasoning_max_tokens if is_deep else cfg.max_tokens_per_candidate
+                )
                 thinking_budget = cfg.deep_thinking_budget_tokens if is_deep else None
 
                 # The candidate id is fixed BEFORE generation so tool
@@ -248,21 +292,29 @@ class ExcavatorPipeline:
                         return f"error: unknown tool {name!r}"
                     input_text = str((tool_input or {}).get("input", ""))
                     res = run_skill(skill, input_text)
-                    invocations.append(ToolInvocation(
-                        candidate_id=candidate_id, skill_name=name, input_text=input_text,
-                        stdout=res.stdout, stderr=res.stderr, exit_code=res.exit_code,
-                        duration_ms=res.duration_ms, timed_out=res.timed_out,
-                    ))
+                    invocations.append(
+                        ToolInvocation(
+                            candidate_id=candidate_id,
+                            skill_name=name,
+                            input_text=input_text,
+                            stdout=res.stdout,
+                            stderr=res.stderr,
+                            exit_code=res.exit_code,
+                            duration_ms=res.duration_ms,
+                            timed_out=res.timed_out,
+                        )
+                    )
                     return format_for_model(res)
 
                 def _persist_invocations() -> None:
                     for inv in invocations:
                         self._ledger.insert_tool_invocation(inv)
 
-                generate_kwargs: dict = dict(
-                    max_tokens=max_tokens, thinking_budget_tokens=thinking_budget,
-                    cache_prefix=ALL_VARIANTS[arm.prompt_variant],
-                )
+                generate_kwargs: dict = {
+                    "max_tokens": max_tokens,
+                    "thinking_budget_tokens": thinking_budget,
+                    "cache_prefix": ALL_VARIANTS[arm.prompt_variant],
+                }
                 if self._skills:
                     generate_kwargs.update(
                         tools=self._skills,
@@ -272,18 +324,32 @@ class ExcavatorPipeline:
 
                 try:
                     generation = await self._client.generate(
-                        prompt, arm.temperature, **generate_kwargs,
+                        prompt,
+                        arm.temperature,
+                        **generate_kwargs,
                     )
+                except SpendLimitExceeded as e:
+                    result.halted_on_spend_limit = True
+                    logger.warning(str(e))
+                    return
                 except Exception as e:  # noqa: BLE001 — log and record as a failed candidate
                     logger.error(f"generation call failed: {e}")
                     candidate = Candidate(
                         id=candidate_id,
-                        seed_id=seed_id, domain=MATH_DOMAIN, temperature=arm.temperature,
-                        prompt_variant=arm.prompt_variant, model=arm.model, prompt_text=prompt,
-                        raw_text="", reasoning_effort=arm.reasoning_effort, path_score=0.0,
-                        steering_hint=steering_hint, iteration=iteration,
+                        seed_id=seed_id,
+                        domain=MATH_DOMAIN,
+                        temperature=arm.temperature,
+                        prompt_variant=arm.prompt_variant,
+                        model=arm.model,
+                        prompt_text=prompt,
+                        raw_text="",
+                        reasoning_effort=arm.reasoning_effort,
+                        path_score=0.0,
+                        steering_hint=steering_hint,
+                        iteration=iteration,
                         refined_from_candidate_id=refined_from_candidate_id,
-                        parse_status="failed", parse_error=f"API call failed: {e}",
+                        parse_status="failed",
+                        parse_error=f"API call failed: {e}",
                     )
                     self._ledger.insert_candidate(candidate)
                     _persist_invocations()
@@ -291,8 +357,11 @@ class ExcavatorPipeline:
                     result.candidates_failed += 1
                     return
 
-                cost = estimate_cost_usd(generation.input_tokens, generation.output_tokens, cfg.provider)
-                spend_tracker.record(cost)
+                cost = estimate_cost_usd(
+                    generation.input_tokens, generation.output_tokens, cfg.provider
+                )
+                if not usage_accounted:
+                    spend_tracker.record(cost)
                 result.total_cost_usd += cost
                 result.total_input_tokens += generation.input_tokens
                 result.total_output_tokens += generation.output_tokens
@@ -310,12 +379,17 @@ class ExcavatorPipeline:
                     )
                     candidate = Candidate(
                         id=candidate_id,
-                        seed_id=seed_id, domain=parsed.get("domain", MATH_DOMAIN),
-                        temperature=arm.temperature, prompt_variant=arm.prompt_variant, model=arm.model,
+                        seed_id=seed_id,
+                        domain=parsed.get("domain", MATH_DOMAIN),
+                        temperature=arm.temperature,
+                        prompt_variant=arm.prompt_variant,
+                        model=arm.model,
                         prompt_text=prompt,
-                        raw_text=generation.text, core_claim=parsed.get("core_claim"),
+                        raw_text=generation.text,
+                        core_claim=parsed.get("core_claim"),
                         formal_statement=parsed.get("formal_statement"),
-                        intuition=parsed.get("intuition"), connections=parsed.get("connections"),
+                        intuition=parsed.get("intuition"),
+                        connections=parsed.get("connections"),
                         self_assessed_novelty=parsed.get("self_assessed_novelty"),
                         identified_weaknesses=parsed.get("identified_weaknesses"),
                         exploration_signal=parsed.get("exploration_signal"),
@@ -329,7 +403,8 @@ class ExcavatorPipeline:
                         numeric_check=parsed.get("numeric_check"),
                         numeric_check_result=numeric_check_result,
                         claim_type=parsed.get("claim_type"),
-                        steering_hint=steering_hint, iteration=iteration,
+                        steering_hint=steering_hint,
+                        iteration=iteration,
                         refined_from_candidate_id=refined_from_candidate_id,
                         parse_status="ok",
                     )
@@ -360,8 +435,8 @@ class ExcavatorPipeline:
                     # Re-score now that duplicate_status is known — an exact
                     # duplicate is zero-value regardless of self-rated confidence.
                     candidate.path_score = compute_path_score(
-                        self_rated_novelty=candidate.self_rated_novelty,
-                        self_rated_rigor=candidate.self_rated_rigor,
+                        self_rated_novelty=parsed["self_rated_novelty"],
+                        self_rated_rigor=parsed["self_rated_rigor"],
                         duplicate_status=candidate.duplicate_status,
                         exploration_signal=candidate.exploration_signal,
                         numeric_check_result=numeric_check_result,
@@ -370,30 +445,41 @@ class ExcavatorPipeline:
                 else:
                     candidate = Candidate(
                         id=candidate_id,
-                        seed_id=seed_id, domain=MATH_DOMAIN, temperature=arm.temperature,
-                        prompt_variant=arm.prompt_variant, model=arm.model, prompt_text=prompt,
-                        raw_text=generation.text, reasoning_effort=arm.reasoning_effort, path_score=0.0,
-                        steering_hint=steering_hint, iteration=iteration,
+                        seed_id=seed_id,
+                        domain=MATH_DOMAIN,
+                        temperature=arm.temperature,
+                        prompt_variant=arm.prompt_variant,
+                        model=arm.model,
+                        prompt_text=prompt,
+                        raw_text=generation.text,
+                        reasoning_effort=arm.reasoning_effort,
+                        path_score=0.0,
+                        steering_hint=steering_hint,
+                        iteration=iteration,
                         refined_from_candidate_id=refined_from_candidate_id,
-                        input_tokens=generation.input_tokens, output_tokens=generation.output_tokens,
-                        parse_status="failed", parse_error=error,
+                        input_tokens=generation.input_tokens,
+                        output_tokens=generation.output_tokens,
+                        parse_status="failed",
+                        parse_error=error,
                     )
                     result.candidates_failed += 1
 
                 self._ledger.insert_candidate(candidate)
                 _persist_invocations()
                 result.candidate_ids.append(candidate.id)
-                _record_arm_score(arm, candidate.id, candidate.path_score)
+                _record_arm_score(arm, candidate.id, candidate.path_score or 0.0)
 
         wave_size = cfg.wave_size if cfg.wave_size > 0 else len(plan)
         for start in range(0, len(plan), wave_size):
-            wave_arms = plan[start:start + wave_size]
-            wave_hints = hints[start:start + wave_size]
-            await asyncio.gather(*(
-                process_one(arm, hint) for arm, hint in zip(wave_arms, wave_hints)
-            ))
+            wave_arms = plan[start : start + wave_size]
+            wave_hints = hints[start : start + wave_size]
+            await asyncio.gather(
+                *(process_one(arm, hint) for arm, hint in zip(wave_arms, wave_hints, strict=True))
+            )
             if start + wave_size < len(plan):
-                already_explored = self._refresh_already_explored(seed_id, cfg.max_prior_claims_in_prompt)
+                already_explored = self._refresh_already_explored(
+                    seed_id, cfg.max_prior_claims_in_prompt
+                )
 
         if result.branch_point_count > 0 and result.suggested_seed_texts:
             result.reseed_recommended = True
@@ -413,26 +499,34 @@ class ExcavatorPipeline:
 
         self._ledger.insert_excavation_cycle(
             ExcavationCycle(
-                seed_id=seed_id, candidates_requested=n_candidates,
+                seed_id=seed_id,
+                candidates_requested=n_candidates,
                 candidates_parsed_ok=result.candidates_parsed_ok,
                 candidates_failed=result.candidates_failed,
                 total_cost_usd=result.total_cost_usd,
                 total_input_tokens=result.total_input_tokens,
                 total_output_tokens=result.total_output_tokens,
-                iteration=iteration, refined_from_candidate_id=refined_from_candidate_id,
-                started_at=started_at, completed_at=now_iso(),
+                iteration=iteration,
+                refined_from_candidate_id=refined_from_candidate_id,
+                started_at=started_at,
+                completed_at=now_iso(),
+                usage_accounted=usage_accounted,
             )
         )
         self._ledger.insert_seed_stat_event(
             SeedStatEvent(
-                seed_id=seed_id, cycles_run_delta=1,
+                seed_id=seed_id,
+                cycles_run_delta=1,
                 candidates_delta=result.candidates_parsed_ok + result.candidates_failed,
             )
         )
         return result
 
     def _select_diverse_top(
-        self, eligible: list[tuple[BeamThread, dict]], top_k: int, max_similarity: float,
+        self,
+        eligible: list[tuple[BeamThread, dict]],
+        top_k: int,
+        max_similarity: float,
     ) -> list[tuple[BeamThread, dict]]:
         """Greedy maximal-marginal-relevance selection: walk candidates in
         score order, skipping any whose fingerprint is too similar to an
@@ -494,7 +588,11 @@ class ExcavatorPipeline:
         return lineage
 
     def _resume_state(
-        self, seed_id: str, seed_text: str, top_k: int, max_similarity: float,
+        self,
+        seed_id: str,
+        seed_text: str,
+        top_k: int,
+        max_similarity: float,
         strong_path_threshold: float,
     ) -> tuple[list[BeamThread], int, list[float]] | None:
         """Rebuild the beam-search state left behind by previous runs on this
@@ -524,7 +622,11 @@ class ExcavatorPipeline:
         # strong-path logic so "sustained progress" is judged across runs.
         history = [
             max(
-                (c["path_score"] for c in by_iteration.get(i, []) if _is_eligible_for_refinement(c)),
+                (
+                    c["path_score"]
+                    for c in by_iteration.get(i, [])
+                    if _is_eligible_for_refinement(c)
+                ),
                 default=0.0,
             )
             for i in range(1, last_iteration + 1)
@@ -561,7 +663,10 @@ class ExcavatorPipeline:
         )
 
     async def _check_promising(
-        self, seed_id: str, candidates: list[tuple[BeamThread, dict]], result: IterativeMiningResult,
+        self,
+        seed_id: str,
+        candidates: list[tuple[BeamThread, dict]],
+        result: IterativeMiningResult,
     ) -> None:
         """Lean-checks every eligible NOVEL candidate from this iteration
         (not just the single beam-selection winner) up to
@@ -581,9 +686,12 @@ class ExcavatorPipeline:
         set up -- the CLI's pre-flight check is the real gate, this is just
         defense in depth."""
         cfg = self._config.excavator
-        by_id = {c["id"]: c for _, c in candidates}  # de-dupe: same candidate can reach here via >1 thread
+        by_id = {
+            c["id"]: c for _, c in candidates
+        }  # de-dupe: same candidate can reach here via >1 thread
         eligible = [
-            c for c in by_id.values()
+            c
+            for c in by_id.values()
             if c["domain"] == MATH_DOMAIN
             and c["duplicate_status"] == "NOVEL"
             and c["path_score"] >= cfg.strong_path_score_threshold
@@ -598,26 +706,33 @@ class ExcavatorPipeline:
         if not project_dir.exists():
             logger.warning(
                 "until_promising: Lean project directory %s not found, skipping check "
-                "for %d eligible candidate(s)", project_dir, len(eligible),
+                "for %d eligible candidate(s)",
+                project_dir,
+                len(eligible),
             )
             return
 
         for candidate in eligible[: cfg.max_lean_checks_per_iteration]:
             outcome = await autoformalize_with_retry(
-                candidate, self._client, project_dir,
-                lean_cfg.lean_timeout_seconds, lean_cfg.max_translation_attempts,
+                candidate,
+                self._client,
+                project_dir,
+                lean_cfg.lean_timeout_seconds,
+                lean_cfg.max_translation_attempts,
             )
             label = classify_result(outcome.lean_code, outcome.check)
 
-            self._ledger.insert_lean_verification(LeanVerification(
-                candidate_id=candidate["id"],
-                lean_code=outcome.lean_code,
-                translation_attempt_number=outcome.attempts,
-                lean_stdout=outcome.check.stdout if outcome.check else None,
-                lean_stderr=outcome.check.stderr if outcome.check else None,
-                result=label,
-                execution_time_ms=outcome.check.duration_ms if outcome.check else None,
-            ))
+            self._ledger.insert_lean_verification(
+                LeanVerification(
+                    candidate_id=candidate["id"],
+                    lean_code=outcome.lean_code,
+                    translation_attempt_number=outcome.attempts,
+                    lean_stdout=outcome.check.stdout if outcome.check else None,
+                    lean_stderr=outcome.check.stderr if outcome.check else None,
+                    result=label,
+                    execution_time_ms=outcome.check.duration_ms if outcome.check else None,
+                )
+            )
 
             if label is not None:
                 continue  # not a survivor -- MALFORMED / UNTRANSLATABLE / KNOWN / TIMEOUT, try the next eligible candidate
@@ -629,21 +744,29 @@ class ExcavatorPipeline:
                 f"(compiles, not trivially closed by exact?/simp) — "
                 f"path_score={candidate['path_score']:.2f}"
             )
-            self._ledger.insert_discovery(Discovery(
-                candidate_id=candidate["id"],
-                seed_id=seed_id,
-                domain=candidate["domain"],
-                statement=candidate["core_claim"],
-                formal_statement=outcome.lean_code,
-                verification_result="SURVIVED",
-                lean_verified=True,
-                human_reviewed=False,
-            ))
+            self._ledger.insert_discovery(
+                Discovery(
+                    candidate_id=candidate["id"],
+                    seed_id=seed_id,
+                    domain=candidate["domain"],
+                    statement=candidate["core_claim"],
+                    formal_statement=outcome.lean_code,
+                    verification_result="SURVIVED",
+                    lean_verified=True,
+                    human_reviewed=False,
+                )
+            )
             return  # stop at the first survivor this iteration
 
     async def run_iterative_mining(
-        self, seed_id: str, seed_text: str, n_candidates_per_iteration: int, depth: int,
-        top_k: int | None = None, resume: bool = True, until_promising: bool = False,
+        self,
+        seed_id: str,
+        seed_text: str,
+        n_candidates_per_iteration: int,
+        depth: int,
+        top_k: int | None = None,
+        resume: bool = True,
+        until_promising: bool = False,
     ) -> IterativeMiningResult:
         """Best-first beam search over the idea space: each iteration expands
         every active thread (a lineage of refined candidates) into its own
@@ -672,7 +795,10 @@ class ExcavatorPipeline:
 
         if resume:
             resumed = self._resume_state(
-                seed_id, seed_text, top_k, cfg.beam_diversity_max_similarity,
+                seed_id,
+                seed_text,
+                top_k,
+                cfg.beam_diversity_max_similarity,
                 cfg.strong_path_score_threshold,
             )
             if resumed is not None:
@@ -681,7 +807,9 @@ class ExcavatorPipeline:
                 logger.info(
                     "resuming iterative mining for seed %s at iteration %d "
                     "(beam of %d thread(s) from previous run(s))",
-                    seed_id, start_iteration + 1, len(beam),
+                    seed_id,
+                    start_iteration + 1,
+                    len(beam),
                 )
 
         for iteration_num in range(start_iteration + 1, start_iteration + depth + 1):
@@ -689,7 +817,11 @@ class ExcavatorPipeline:
             # The wildcat only makes sense once the beam holds refined
             # threads; on a resume whose fallback beam IS the original seed
             # it would just duplicate that thread.
-            if iteration_num >= 2 and cfg.iteration_exploration_thread and any(t.lineage for t in beam):
+            if (
+                iteration_num >= 2
+                and cfg.iteration_exploration_thread
+                and any(t.lineage for t in beam)
+            ):
                 # The wildcat thread: a fresh, unrefined pass at the original
                 # seed competing for beam slots on equal footing.
                 threads_to_run.append(
@@ -700,12 +832,17 @@ class ExcavatorPipeline:
             for thread in threads_to_run:
                 parent_id = thread.lineage[-1] if thread.lineage else None
                 cycle_result = await self.run_cycle(
-                    seed_id, thread.working_seed_text, n_candidates_per_iteration,
-                    iteration=iteration_num, refined_from_candidate_id=parent_id,
+                    seed_id,
+                    thread.working_seed_text,
+                    n_candidates_per_iteration,
+                    iteration=iteration_num,
+                    refined_from_candidate_id=parent_id,
                 )
                 thread_cycle_pairs.append((thread, cycle_result))
 
-            all_candidates_by_id = {c["id"]: c for c in self._ledger.list_candidates_by_seed(seed_id)}
+            all_candidates_by_id = {
+                c["id"]: c for c in self._ledger.list_candidates_by_seed(seed_id)
+            }
             candidates_with_thread = [
                 (thread, all_candidates_by_id[cid])
                 for thread, cycle_result in thread_cycle_pairs
@@ -714,7 +851,9 @@ class ExcavatorPipeline:
             ]
 
             eligible = [
-                (thread, c) for thread, c in candidates_with_thread if _is_eligible_for_refinement(c)
+                (thread, c)
+                for thread, c in candidates_with_thread
+                if _is_eligible_for_refinement(c)
             ]
 
             # Lineage retention: a thread whose best-ever score already clears
@@ -741,13 +880,15 @@ class ExcavatorPipeline:
             top = self._select_diverse_top(eligible, top_k, cfg.beam_diversity_max_similarity)
 
             if not top:
-                result.iterations.append(IterationSummary(
-                    iteration=iteration_num,
-                    cycle_results=[cr for _, cr in thread_cycle_pairs],
-                    beam_after=[],
-                    stopped_early=True,
-                    stop_reason="no eligible candidate to refine further this iteration",
-                ))
+                result.iterations.append(
+                    IterationSummary(
+                        iteration=iteration_num,
+                        cycle_results=[cr for _, cr in thread_cycle_pairs],
+                        beam_after=[],
+                        stopped_early=True,
+                        stop_reason="no eligible candidate to refine further this iteration",
+                    )
+                )
                 break
 
             def _next_thread(thread: BeamThread, c: dict) -> BeamThread:
@@ -766,7 +907,11 @@ class ExcavatorPipeline:
                         best_path_score=thread.best_path_score,
                         strong_streak=0,
                     )
-                streak = thread.strong_streak + 1 if c["path_score"] >= cfg.strong_path_score_threshold else 0
+                streak = (
+                    thread.strong_streak + 1
+                    if c["path_score"] >= cfg.strong_path_score_threshold
+                    else 0
+                )
                 return BeamThread(
                     lineage=thread.lineage + [c["id"]],
                     working_seed_text=build_refined_seed_text(seed_text, c),
@@ -792,17 +937,22 @@ class ExcavatorPipeline:
                 and iteration_num < start_iteration + depth
             )
             stopped_early = plateaued or result.promising_found
-            result.iterations.append(IterationSummary(
-                iteration=iteration_num,
-                cycle_results=[cr for _, cr in thread_cycle_pairs],
-                beam_after=new_beam,
-                stopped_early=stopped_early,
-                stop_reason=(
-                    result.promising_reason if result.promising_found else
-                    f"plateau: best score has not improved for {plateau_streak} consecutive "
-                    f"iteration(s) — stopping early to avoid spending on a stuck path"
-                ) if stopped_early else None,
-            ))
+            result.iterations.append(
+                IterationSummary(
+                    iteration=iteration_num,
+                    cycle_results=[cr for _, cr in thread_cycle_pairs],
+                    beam_after=new_beam,
+                    stopped_early=stopped_early,
+                    stop_reason=(
+                        result.promising_reason
+                        if result.promising_found
+                        else f"plateau: best score has not improved for {plateau_streak} consecutive "
+                        f"iteration(s) — stopping early to avoid spending on a stuck path"
+                    )
+                    if stopped_early
+                    else None,
+                )
+            )
             beam = new_beam
             if stopped_early:
                 break

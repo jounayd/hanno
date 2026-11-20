@@ -18,6 +18,7 @@ and output cap) raise the cost of an accident or a trivial escape — they do
 NOT make hostile code safe. The miner who sets enabled:true accepts that, and
 the honest recommendation is to run Hanno itself inside a container or VM.
 """
+
 import io
 import os
 import sys
@@ -27,7 +28,7 @@ import traceback
 # Tunables (best-effort; some are no-ops on platforms without `resource`).
 CPU_SECONDS = 10
 ADDRESS_SPACE_BYTES = 1024 * 1024 * 1024  # 1 GiB
-MAX_FILE_BYTES = 10 * 1024 * 1024          # 10 MiB
+MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MiB
 
 
 def _apply_rlimits() -> None:
@@ -57,10 +58,10 @@ def _block_network() -> None:
     the ordinary `requests`/`urllib`/`socket` paths cold."""
     import socket
 
-    def _blocked(*_args, **_kwargs):
+    def _blocked(*_args: object, **_kwargs: object) -> None:
         raise OSError("network access is disabled in run_code")
 
-    socket.socket = _blocked           # type: ignore[assignment]
+    socket.socket = _blocked  # type: ignore[assignment]
     socket.create_connection = _blocked  # type: ignore[assignment]
     if hasattr(socket, "create_server"):
         socket.create_server = _blocked  # type: ignore[assignment]
@@ -106,7 +107,9 @@ def main() -> int:
         real_stdout.write(error_text)
         return 1
     if not output:
-        real_stdout.write("[run_code: the program produced no output — did you print your result?]\n")
+        real_stdout.write(
+            "[run_code: the program produced no output — did you print your result?]\n"
+        )
     return 0
 
 

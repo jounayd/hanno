@@ -1,6 +1,7 @@
 """LeanVerification ledger methods -- Step 6 pilot: writing/reading the
 previously-unused lean_verifications table, and the query that finds
 mathematics candidates still needing a Lean check."""
+
 import pytest
 
 from hanno.ledger.models import Candidate, LeanVerification, Seed
@@ -9,10 +10,10 @@ from hanno.ledger.repository import Ledger
 
 @pytest.fixture
 def ledger(tmp_path):
-    l = Ledger.connect(tmp_path / "test.db")
-    l.init_schema()
-    yield l
-    l.close()
+    db = Ledger.connect(tmp_path / "test.db")
+    db.init_schema()
+    yield db
+    db.close()
 
 
 @pytest.fixture
@@ -23,11 +24,19 @@ def seed(ledger):
 
 
 def _candidate(seed_id, **overrides):
-    defaults = dict(
-        seed_id=seed_id, domain="mathematics", temperature=0.5, prompt_variant="direct_conjecture",
-        model="test-model", reasoning_effort="standard", raw_text="{}", core_claim="a claim",
-        formal_statement="for all x, x = x", parse_status="ok", prompt_text="prompt",
-    )
+    defaults: dict = {
+        "seed_id": seed_id,
+        "domain": "mathematics",
+        "temperature": 0.5,
+        "prompt_variant": "direct_conjecture",
+        "model": "test-model",
+        "reasoning_effort": "standard",
+        "raw_text": "{}",
+        "core_claim": "a claim",
+        "formal_statement": "for all x, x = x",
+        "parse_status": "ok",
+        "prompt_text": "prompt",
+    }
     defaults.update(overrides)
     return Candidate(**defaults)
 
@@ -37,9 +46,13 @@ def test_insert_and_list_lean_verification_by_candidate(ledger, seed):
     ledger.insert_candidate(c)
 
     verification = LeanVerification(
-        candidate_id=c.id, lean_code="theorem foo : True := by sorry",
-        translation_attempt_number=1, lean_stdout="", lean_stderr="",
-        result="KNOWN", execution_time_ms=120,
+        candidate_id=c.id,
+        lean_code="theorem foo : True := by sorry",
+        translation_attempt_number=1,
+        lean_stdout="",
+        lean_stderr="",
+        result="KNOWN",
+        execution_time_ms=120,
     )
     ledger.insert_lean_verification(verification)
 
@@ -64,7 +77,9 @@ def test_list_mathematics_candidates_without_lean_check_excludes_checked(ledger,
     assert checked.id not in ids
 
 
-def test_list_mathematics_candidates_without_lean_check_excludes_other_domains_and_failed_parses(ledger, seed):
+def test_list_mathematics_candidates_without_lean_check_excludes_other_domains_and_failed_parses(
+    ledger, seed
+):
     other_domain = _candidate(seed.id, domain="philosophy")
     failed_parse = _candidate(seed.id, parse_status="failed")
     no_formal_statement = _candidate(seed.id, formal_statement=None)

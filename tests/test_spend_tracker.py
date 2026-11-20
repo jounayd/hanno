@@ -3,6 +3,7 @@ everything from a free local Ollama server to metered hosted APIs, so it
 must report 0.0 rather than a fabricated dollar figure -- otherwise
 daily_spend_limit_usd enforcement (SpendTracker.check_before_call) halts a
 genuinely free local run over cost that was never spent."""
+
 from hanno.excavator.spend_tracker import estimate_cost_usd
 
 

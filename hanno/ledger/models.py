@@ -1,15 +1,10 @@
-"""Dataclasses for Ledger record types (Steps 1-3 subset).
+"""Append-only ledger records and read-only summaries."""
 
-Additional record types (Fingerprint, SieveEvaluation, LeanVerification,
-Discovery, HumanReview, ReseedEvent, ...) will be added as their owning
-modules are implemented in later steps. Their tables already exist in
-schema.sql per Step 1's "create all tables" deliverable.
-"""
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def new_id() -> str:
@@ -17,7 +12,17 @@ def new_id() -> str:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
+
+
+@dataclass(frozen=True)
+class UsageSummary:
+    estimated_cost_usd: float
+    input_tokens: int
+    output_tokens: int
+    settled_requests: int
+    pending_requests: int
+    reserved_cost_usd: float
 
 
 @dataclass
@@ -100,6 +105,7 @@ class ExcavationCycle:
     iteration: int = 1
     refined_from_candidate_id: str | None = None
     id: str = field(default_factory=new_id)
+    usage_accounted: bool = False
 
 
 @dataclass
@@ -114,6 +120,7 @@ class ToolInvocation:
     timed_out: bool = False
     id: str = field(default_factory=new_id)
     invoked_at: str = field(default_factory=now_iso)
+    phase: str = "generation"
 
 
 @dataclass

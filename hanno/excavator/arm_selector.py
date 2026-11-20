@@ -6,6 +6,7 @@ arms have historically produced the highest path_score, while
 `exploration_constant` keeps a standing budget for trying less-proven arms
 so the search never fully stops sailing new headings.
 """
+
 from __future__ import annotations
 
 import math
@@ -40,7 +41,10 @@ def _diagonal_order(temperatures: list[float], variants: list[str]) -> list[tupl
 
 
 def build_arm_space(
-    model: str, temperatures: list[float], variants: list[str], reasoning_efforts: list[str],
+    model: str,
+    temperatures: list[float],
+    variants: list[str],
+    reasoning_efforts: list[str],
 ) -> list[Arm]:
     arms: list[Arm] = []
     if REASONING_EFFORT_STANDARD in reasoning_efforts:
@@ -57,7 +61,10 @@ def _arm_key(arm: Arm) -> tuple:
 
 
 def select_plan(
-    n_candidates: int, arms: list[Arm], arm_stats: list[dict], exploration_constant: float = 1.4,
+    n_candidates: int,
+    arms: list[Arm],
+    arm_stats: list[dict],
+    exploration_constant: float = 1.4,
 ) -> list[Arm]:
     """arm_stats: rows from Ledger.get_arm_stats(domain), each with keys
     model, temperature, prompt_variant, reasoning_effort, pulls, avg_score."""
@@ -84,8 +91,10 @@ def select_plan(
             total_pulls = sum(pulls.values())
             chosen = max(
                 arms,
-                key=lambda a: avg_score[a]
-                + exploration_constant * math.sqrt(math.log(total_pulls + 1) / pulls[a]),
+                key=lambda a: (
+                    avg_score[a]
+                    + exploration_constant * math.sqrt(math.log(total_pulls + 1) / pulls[a])
+                ),
             )
         plan.append(chosen)
         pulls[chosen] += 1

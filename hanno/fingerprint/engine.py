@@ -1,6 +1,7 @@
 """FingerprintEngine: orchestrates the full Module 3 pipeline
 (General-spec.txt:505-560) for both seeds and candidates.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -20,7 +21,7 @@ class FingerprintResult:
 
 
 class FingerprintEngine:
-    def __init__(self, ledger: Ledger, config: FingerprintConfig):
+    def __init__(self, ledger: Ledger, config: FingerprintConfig) -> None:
         self._ledger = ledger
         self._config = config
         self._reducer = reducer.Reducer(
@@ -70,18 +71,25 @@ class FingerprintEngine:
         best_match_entity_id = None
         for row in existing:
             import json
-            other_vector = json.loads(row["compressed_vector"])
-            score = similarity.cosine_similarity(compressed_vector, other_vector)
+
+            # PCA versions have different bases. The original embeddings share
+            # one stable coordinate system, including across recalibration.
+            other_vector = json.loads(row["full_vector"])
+            score = similarity.cosine_similarity(full_vector, other_vector)
             if score > best_similarity:
                 best_similarity = score
                 best_match_hash = row["hash"]
                 best_match_entity_id = row["entity_id"]
 
-        classification = similarity.classify(
-            best_similarity,
-            self._config.similarity_threshold_near_duplicate,
-            self._config.similarity_threshold_exact_duplicate,
-        ) if existing else "NOVEL"
+        classification = (
+            similarity.classify(
+                best_similarity,
+                self._config.similarity_threshold_near_duplicate,
+                self._config.similarity_threshold_exact_duplicate,
+            )
+            if existing
+            else "NOVEL"
+        )
 
         self._ledger.insert_fingerprint(
             hash=fingerprint_hash,

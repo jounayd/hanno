@@ -1,4 +1,5 @@
 """SQLite connection management and schema initialization."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -14,6 +15,8 @@ SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 # columns must be nullable (or have a DEFAULT) since they're being added to
 # a table that may already have rows.
 _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
+    ("excavation_cycles", "usage_accounted", "INTEGER NOT NULL DEFAULT 0"),
+    ("tool_invocations", "phase", "TEXT NOT NULL DEFAULT 'generation'"),
     ("candidates", "prompt_text", "TEXT NOT NULL DEFAULT ''"),
     ("candidates", "exploration_signal", "TEXT"),
     ("candidates", "suggested_seeds", "TEXT"),
@@ -42,9 +45,8 @@ def _existing_columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 def _migrate_columns(conn: sqlite3.Connection) -> None:
     existing_tables = {
-        row[0] for row in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
+        row[0]
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     }
     for table, column, definition in _COLUMN_MIGRATIONS:
         if table not in existing_tables:

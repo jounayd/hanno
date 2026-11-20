@@ -1,4 +1,5 @@
 """`hanno seeds` — submit and list seeds (Step 2)."""
+
 from __future__ import annotations
 
 import typer
@@ -14,14 +15,17 @@ VALID_SEED_TYPES = ("human", "ai-generated", "derivative")
 @app.command("add")
 def add(
     text: str = typer.Argument(..., help="Seed concept text (10-200 words)."),
-    domain: str = typer.Option(..., "--domain", help="mathematics | science | philosophy | cross-domain"),
+    domain: str = typer.Option(
+        ..., "--domain", help="mathematics | science | philosophy | cross-domain"
+    ),
     submitter_id: str = typer.Option(None, "--submitter", help="Human submitter identifier."),
     type: str = typer.Option(
-        "human", "--type",
+        "human",
+        "--type",
         help="human | ai-generated | derivative — use ai-generated when submitting a "
-             "suggested_seeds entry surfaced by `hanno mine`, so it's traceable as such.",
+        "suggested_seeds entry surfaced by `hanno mine`, so it's traceable as such.",
     ),
-):
+) -> None:
     if type not in VALID_SEED_TYPES:
         typer.secho(
             f"REJECTED: invalid --type '{type}'. Must be one of: {', '.join(VALID_SEED_TYPES)}.",
@@ -40,7 +44,7 @@ def add(
 
 
 @app.command("list")
-def list_seeds(domain: str = typer.Option(None, "--domain")):
+def list_seeds(domain: str = typer.Option(None, "--domain")) -> None:
     ctx = build_context()
     manager = SeedManager(ctx.ledger, ctx.fingerprint_engine)
     queue = manager.list_queue(domain=domain)

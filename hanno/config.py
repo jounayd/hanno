@@ -4,6 +4,7 @@ Loads config/default.yaml, applies environment variable overrides, and
 (when a Ledger is supplied) diffs the resolved config against the last
 stored snapshot, logging one calibration_event per changed parameter.
 """
+
 from __future__ import annotations
 
 import json
@@ -12,7 +13,10 @@ from typing import Any
 
 import yaml
 from pydantic import BaseModel, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
+
+from hanno.ledger.repository import Ledger
+from hanno.paths import resource_path
 
 
 class ExcavatorConfig(BaseModel):
@@ -24,20 +28,32 @@ class ExcavatorConfig(BaseModel):
     max_parallel_calls: int = 10
     daily_spend_limit_usd: float = 25.0
     provider: str = "anthropic"  # "anthropic" | "openai_compatible" -- see hanno/excavator/client_factory.py. openai_compatible covers OpenAI itself plus any self-hosted/hosted server speaking the same wire format (Ollama, LM Studio, vLLM, Groq, ...)
-    base_url: str | None = None  # only used for provider=openai_compatible, e.g. "http://localhost:11434/v1" for a local Ollama server
-    prover_provider: str | None = None  # optional per-role override (Migration Plan Phase 6): a separate, possibly stronger/dedicated model just for the Prover role. None means "reuse the main provider/model/base_url for proving too" -- fully backward compatible.
-    prover_model: str | None = None  # setting this is what actually activates a separate prover client (see build_prover_client) -- prover_provider/prover_base_url alone do nothing without it
-    prover_base_url: str | None = None  # only used when prover_provider=openai_compatible; falls back to base_url if unset
+    base_url: str | None = (
+        None  # only used for provider=openai_compatible, e.g. "http://localhost:11434/v1" for a local Ollama server
+    )
+    prover_provider: str | None = (
+        None  # optional per-role override (Migration Plan Phase 6): a separate, possibly stronger/dedicated model just for the Prover role. None means "reuse the main provider/model/base_url for proving too" -- fully backward compatible.
+    )
+    prover_model: str | None = (
+        None  # setting this is what actually activates a separate prover client (see build_prover_client) -- prover_provider/prover_base_url alone do nothing without it
+    )
+    prover_base_url: str | None = (
+        None  # only used when prover_provider=openai_compatible; falls back to base_url if unset
+    )
     model: str = "claude-sonnet-4-5-20250929"
     request_timeout_seconds: float = 600.0  # per-call HTTP read timeout. Hosted APIs finish well inside this; self-hosted local models (slow tok/s, plus max_tokens_per_candidate/deep_reasoning_max_tokens both well above 600s worth of tokens at local speeds) need this raised or every long response gets killed mid-generation -- see LOCAL_MODEL_SETUP.md
     max_translation_retries: int = 3
-    dead_end_reseed_threshold: float = 0.6  # fraction of dead_end signals that triggers a reseed recommendation
+    dead_end_reseed_threshold: float = (
+        0.6  # fraction of dead_end signals that triggers a reseed recommendation
+    )
     arm_selection_strategy: str = "ucb1"  # "ucb1" | "round_robin"
     ucb1_exploration_constant: float = 1.4
     reasoning_efforts: list[str] = ["standard", "deep"]
     deep_thinking_budget_tokens: int = 4096  # extended-thinking token budget for "deep" arms
     deep_reasoning_max_tokens: int = 16000  # must exceed deep_thinking_budget_tokens
-    max_prior_claims_in_prompt: int = 15  # prior core_claims fed back in so candidates diverge instead of reconverging
+    max_prior_claims_in_prompt: int = (
+        15  # prior core_claims fed back in so candidates diverge instead of reconverging
+    )
     wave_size: int = 0  # 0 = disabled (full parallel, current speed). >0 = stage the cycle into sequential waves of this size, feeding each wave's own core_claims into already_explored for the next wave -- trades latency for real intra-cycle diversity.
     iteration_top_k: int = 2  # beam width for iterative mining (hanno mine --depth): how many top candidates carry forward into the next iteration
     strong_path_score_threshold: float = 0.6  # best-of-beam path_score that must be sustained for a "strong path" reseed recommendation
@@ -131,9 +147,20 @@ class HannoConfig(BaseSettings):
     pipeline: PipelineConfig = PipelineConfig()
     logging: LoggingConfig = LoggingConfig()
 
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return env_settings, init_settings, dotenv_settings, file_secret_settings
 
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "default.yaml"
-LOCAL_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "local.yaml"
+
+DEFAULT_CONFIG_PATH = resource_path("config/default.yaml")
+LOCAL_CONFIG_PATH = Path("config/local.yaml")
 
 
 def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
@@ -147,7 +174,8 @@ def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_config(
-    path: Path | str = DEFAULT_CONFIG_PATH, local_path: Path | str = LOCAL_CONFIG_PATH,
+    path: Path | str = DEFAULT_CONFIG_PATH,
+    local_path: Path | str = LOCAL_CONFIG_PATH,
 ) -> HannoConfig:
     """Load YAML config, merging an optional local overlay in first.
 
@@ -157,16 +185,9 @@ def load_config(
     dict default.yaml produces, so local.yaml wins over default.yaml
     leaf-for-leaf.
 
-    Env var (HANNO_*) precedence, pre-existing and unrelated to this
-    overlay: `HannoConfig(**raw)` passes each top-level section (e.g.
-    "excavator") as an explicit init value whenever `raw` contains it, and
-    pydantic-settings' init source outranks its env source per *field*, not
-    per *leaf* -- so a HANNO_EXCAVATOR__* env var only takes effect for a
-    seed's excavator settings when `raw` has no "excavator" key at all
-    (i.e. default.yaml and local.yaml both omit it entirely). In today's
-    config/default.yaml, which populates every section, HANNO_* overrides
-    for existing fields are effectively inert. Not fixed here -- flagged as
-    a separate pre-existing issue.
+    HANNO_* environment values have highest priority, followed by the local
+    overlay, the selected YAML file, and model defaults. Nested overrides
+    replace only the requested leaf, preserving sibling YAML values.
     """
     path = Path(path)
     raw: dict[str, Any] = {}
@@ -194,7 +215,9 @@ def _flatten(d: dict[str, Any], prefix: str = "") -> dict[str, Any]:
     return out
 
 
-def diff_and_log_calibration(ledger, config: HannoConfig, reason: str = "config file change") -> int:
+def diff_and_log_calibration(
+    ledger: Ledger, config: HannoConfig, reason: str = "config file change"
+) -> int:
     """Compare `config` against the last stored snapshot in the ledger.
 
     Logs one calibration_event per changed leaf parameter, then stores the

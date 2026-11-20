@@ -1,5 +1,6 @@
 """Proves append-only enforcement: DB triggers reject UPDATE/DELETE on every
 table, and the Ledger class exposes no update_*/delete_* method."""
+
 import sqlite3
 
 import pytest
@@ -12,10 +13,10 @@ ALL_TABLES = Ledger.TABLES
 
 @pytest.fixture
 def ledger(tmp_path):
-    l = Ledger.connect(tmp_path / "test.db")
-    l.init_schema()
-    yield l
-    l.close()
+    db = Ledger.connect(tmp_path / "test.db")
+    db.init_schema()
+    yield db
+    db.close()
 
 
 def test_no_mutation_methods_on_ledger_class():
@@ -63,6 +64,7 @@ def test_export_produces_valid_json(ledger, tmp_path):
     out_path = tmp_path / "export.json"
     ledger.export_json(out_path)
     import json
+
     with open(out_path) as f:
         data = json.load(f)
     assert "seeds" in data

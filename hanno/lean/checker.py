@@ -5,6 +5,7 @@ Per-file subprocess calls against a precompiled Mathlib cache, not the
 REPL/server mode the config anticipates for the eventual real pipeline --
 that's the natural next step if this pilot's numbers justify continuing.
 """
+
 from __future__ import annotations
 
 import re
@@ -60,7 +61,7 @@ class CheckResult:
     timed_out: bool = False
 
 
-def classify_result(lean_code: str | None, check: "CheckResult | None") -> str | None:
+def classify_result(lean_code: str | None, check: CheckResult | None) -> str | None:
     """Maps a (lean_code, CheckResult) pair onto lean_verifications.result.
     Shared by hanno lean-pilot and the live until_promising mining check so
     the two never drift into different definitions of the same outcome.
@@ -83,12 +84,19 @@ def _run_lean(project_dir: Path, source: str, timeout_s: int) -> tuple[bool, str
     try:
         proc = subprocess.run(
             ["lake", "env", "lean", str(scratch)],
-            cwd=project_dir, capture_output=True, text=True, timeout=timeout_s,
+            cwd=project_dir,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
         )
         return proc.returncode == 0, proc.stdout, proc.stderr, False
     except subprocess.TimeoutExpired as e:
-        stdout = e.stdout if isinstance(e.stdout, str) else (e.stdout or b"").decode(errors="replace")
-        stderr = e.stderr if isinstance(e.stderr, str) else (e.stderr or b"").decode(errors="replace")
+        stdout = (
+            e.stdout if isinstance(e.stdout, str) else (e.stdout or b"").decode(errors="replace")
+        )
+        stderr = (
+            e.stderr if isinstance(e.stderr, str) else (e.stderr or b"").decode(errors="replace")
+        )
         return False, stdout, stderr, True
     finally:
         scratch.unlink(missing_ok=True)
@@ -108,8 +116,12 @@ def check_proof(lean_code: str, project_dir: Path, timeout_s: int) -> CheckResul
 
     ok, stdout, stderr, timed_out = _run_lean(project_dir, lean_code, timeout_s)
     return CheckResult(
-        compiles=ok and not timed_out, trivial_by=None, stdout=stdout, stderr=stderr,
-        duration_ms=int((time.monotonic() - start) * 1000), timed_out=timed_out,
+        compiles=ok and not timed_out,
+        trivial_by=None,
+        stdout=stdout,
+        stderr=stderr,
+        duration_ms=int((time.monotonic() - start) * 1000),
+        timed_out=timed_out,
     )
 
 
@@ -129,6 +141,9 @@ def check_statement(lean_code: str, project_dir: Path, timeout_s: int) -> CheckR
             break
 
     return CheckResult(
-        compiles=True, trivial_by=trivial_by, stdout=initial.stdout, stderr=initial.stderr,
+        compiles=True,
+        trivial_by=trivial_by,
+        stdout=initial.stdout,
+        stderr=initial.stderr,
         duration_ms=initial.duration_ms + int((time.monotonic() - start) * 1000),
     )

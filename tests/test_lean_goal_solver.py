@@ -2,7 +2,8 @@
 of standard Lean closing tactics against a stuck sub-goal via real
 compilation and reports which one (if any) actually works, instead of a
 model guessing a single tactic. Skipped entirely if the local Lean
-toolchain/Mathlib checkout isn't set up (see LOCAL_MODEL_SETUP.md)."""
+toolchain/Mathlib checkout isn't set up (see docs/development.md)."""
+
 import subprocess
 import sys
 from pathlib import Path
@@ -13,9 +14,13 @@ PY = sys.executable
 SCRIPT = "skills/scripts/lean_goal_solver.py"
 MATHLIB_CACHE = Path("data/mathlib_cache")
 
-pytestmark = pytest.mark.skipif(
-    not MATHLIB_CACHE.is_dir(), reason="local Lean toolchain not present -- see LOCAL_MODEL_SETUP.md"
-)
+pytestmark = [
+    pytest.mark.lean,
+    pytest.mark.skipif(
+        not MATHLIB_CACHE.is_dir(),
+        reason="local Lean project not present -- run `uv run poe lean:setup`",
+    ),
+]
 
 
 # Real Lean subprocess timing under this machine's actual load varies a lot
@@ -29,8 +34,11 @@ CALL_TIMEOUT = 180
 
 def solve(statement: str, timeout: int = CALL_TIMEOUT) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [PY, SCRIPT], input=statement,
-        capture_output=True, text=True, timeout=timeout,
+        [PY, SCRIPT],
+        input=statement,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
     )
 
 

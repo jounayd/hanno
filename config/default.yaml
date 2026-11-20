@@ -11,11 +11,11 @@ excavator:
   domain_specific_variants_per_domain: 3
   parallel_execution: true
   max_parallel_calls: 10                 # rate-limit protection
-  daily_spend_limit_usd: 25.0            # hard cap, enforced in code (Step 3)
+  daily_spend_limit_usd: 25.0            # estimated daily cap, reserved before each Anthropic request
   provider: "anthropic"                  # anthropic | openai_compatible -- openai_compatible covers OpenAI itself plus any self-hosted/hosted server speaking the same wire format (Ollama, LM Studio, vLLM, Groq, ...), see hanno/excavator/client_factory.py
-  base_url: null                         # only used for provider: openai_compatible, e.g. "http://localhost:11434/v1" for a local Ollama server -- see LOCAL_MODEL_SETUP.md
+  base_url: null                         # only used for provider: openai_compatible, e.g. "http://localhost:11434/v1" for a local Ollama server -- see docs/LOCAL_MODEL_SETUP.md
   model: "claude-sonnet-4-5-20250929"
-  request_timeout_seconds: 600.0         # per-call HTTP read timeout. Hosted APIs finish well inside this; self-hosted local models are much slower tok/s and need this raised (e.g. 1800-3600) or long responses get killed mid-generation as a spurious "failed" candidate -- see LOCAL_MODEL_SETUP.md
+  request_timeout_seconds: 600.0         # per-call HTTP read timeout. Hosted APIs finish well inside this; self-hosted local models are much slower tok/s and need this raised (e.g. 1800-3600) or long responses get killed mid-generation as a spurious "failed" candidate -- see docs/LOCAL_MODEL_SETUP.md
   max_translation_retries: 3             # generic retry budget for malformed JSON output
   dead_end_reseed_threshold: 0.6         # dead_end signal ratio in a cycle that triggers a reseed recommendation
   arm_selection_strategy: "ucb1"         # ucb1 | round_robin -- how (temperature, variant, reasoning_effort) is chosen per candidate
@@ -39,7 +39,7 @@ skills:                                  # miner-registered verification tools (
   directory: "skills"
   max_tool_rounds_per_candidate: 6       # each round re-sends the conversation; raised from 3 -- real runs hit that cap mid-investigation, and the run-out now triggers a forced JSON finalization call instead of a parse failure
 
-fingerprint:                             # present now, unused until Step 4
+fingerprint:                             # semantic duplicate detection
   embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
   compressed_dimensions: 128
   similarity_threshold_near_duplicate: 0.92
@@ -47,7 +47,7 @@ fingerprint:                             # present now, unused until Step 4
   calibration_minimum_fingerprints: 500
   recalibration_interval: 1000
 
-sieve:                                   # present now, unused until Step 5
+sieve:                                   # reserved for the planned multi-dimensional sieve
   coherence_weight: 0.25
   novelty_weight: 0.25
   significance_weight: 0.25

@@ -14,29 +14,30 @@ command has no such instruction anywhere: the claim is fixed, formalized
 faithfully (see hanno/lean/autoformalize.py's strength-preservation rules),
 and either proved, refuted, or left honestly unresolved.
 """
+
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 import typer
 
-from hanno.cli.context import build_context
+from hanno.cli.context import build_context, run_async
 from hanno.excavator.client_factory import build_client, build_prover_client
 from hanno.skills.registry import load_skill_files
-from hanno.solve.pipeline import solve_claim
+from hanno.solve.pipeline import SolveResult, solve_claim
 from hanno.ui.secrets import load_api_key
 
 
 def solve(
     seed_id: str = typer.Argument(..., help="Seed ID to solve (for ledger/UI linkage)."),
     claim: str = typer.Option(
-        None, "--claim",
+        None,
+        "--claim",
         help="The exact claim to prove/disprove. Defaults to the seed's own text -- pass this "
-             "explicitly if the seed text includes background/context you don't want formalized "
-             "verbatim (e.g. \"this is the k=N instance of the general fact that...\").",
+        "explicitly if the seed text includes background/context you don't want formalized "
+        'verbatim (e.g. "this is the k=N instance of the general fact that...").',
     ),
-):
+) -> None:
     """Prove or disprove exactly one claim -- no candidate generation, no
     exploration, no self-rated scoring. Formalizes the claim faithfully,
     searches for a counterexample, and if none is found, attempts a
@@ -82,15 +83,26 @@ def solve(
         )
 
     typer.echo(f"Solving: {claim_text}")
-    client = build_client(ctx.config, api_key=load_api_key(ctx.config.excavator.provider), max_tokens=3000)
-    prover_client = build_prover_client(
-        ctx.config, api_key=load_api_key(ctx.config.excavator.prover_provider or ctx.config.excavator.provider),
+    client = build_client(
+        ctx.config,
+        api_key=load_api_key(ctx.config.excavator.provider),
         max_tokens=3000,
+        ledger=ctx.ledger,
+    )
+    prover_client = build_prover_client(
+        ctx.config,
+        api_key=load_api_key(ctx.config.excavator.prover_provider or ctx.config.excavator.provider),
+        max_tokens=3000,
+        ledger=ctx.ledger,
     )
 
-    async def _run():
+    async def _run() -> SolveResult:
         result = await solve_claim(
-            claim_text, seed_id, client, project_dir, ctx.ledger,
+            claim_text,
+            seed_id,
+            client,
+            project_dir,
+            ctx.ledger,
             lean_timeout_s=ctx.config.lean_verifier.lean_timeout_seconds,
             max_translation_attempts=ctx.config.lean_verifier.max_translation_attempts,
             max_proof_attempts=ctx.config.lean_verifier.max_proof_attempts,
@@ -106,11 +118,12 @@ def solve(
         return result
 
     typer.echo("  formalizing (faithfully -- no generalization, no weakening)...")
-    result = asyncio.run(_run())
+    result = run_async(_run())
 
     if result.stage_reached in ("untranslatable", "malformed", "timeout"):
         typer.secho(
-            f"Could not formalize this claim: {result.triviality_result}", fg=typer.colors.RED,
+            f"Could not formalize this claim: {result.triviality_result}",
+            fg=typer.colors.RED,
         )
     elif result.stage_reached == "trivial":
         typer.secho(
@@ -123,7 +136,11 @@ def solve(
     elif result.stage_reached == "proved":
         typer.echo("")
         typer.secho("=" * 70, fg=typer.colors.GREEN, bold=True)
-        typer.secho("SOLVED -- a complete, compiling Lean proof was found.", fg=typer.colors.GREEN, bold=True)
+        typer.secho(
+            "SOLVED -- a complete, compiling Lean proof was found.",
+            fg=typer.colors.GREEN,
+            bold=True,
+        )
         typer.echo(result.proof_code)
         typer.secho("=" * 70, fg=typer.colors.GREEN, bold=True)
     else:  # unresolved

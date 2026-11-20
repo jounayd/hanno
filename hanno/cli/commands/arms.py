@@ -1,6 +1,7 @@
 """`hanno arms` — leaderboard of (model, temperature, prompt_variant,
 reasoning_effort) combinations by average path_score, so the adaptive
 selection in ExcavatorPipeline isn't a black box."""
+
 from __future__ import annotations
 
 import typer
@@ -10,7 +11,7 @@ from hanno.cli.context import build_context
 MATH_DOMAIN = "mathematics"
 
 
-def arms():
+def arms() -> None:
     ctx = build_context()
     stats = ctx.ledger.get_arm_stats(MATH_DOMAIN)
     if not stats:

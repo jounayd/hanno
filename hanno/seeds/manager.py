@@ -1,4 +1,5 @@
 """SeedManager: submission, validation, lifecycle, and queue access."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,7 +10,7 @@ from hanno.ledger.repository import Ledger
 from hanno.seeds.queue import order_queue
 from hanno.seeds.validation import ValidationResult, validate_seed_text
 
-EXHAUSTION_THRESHOLD_CYCLES = 3  # consecutive zero-sieve-pass cycles (Sieve arrives Step 5)
+EXHAUSTION_THRESHOLD_CYCLES = 3  # consecutive zero-pass cycles
 
 
 @dataclass
@@ -33,21 +34,28 @@ class ReseedResult:
 
 
 class SeedManager:
-    def __init__(self, ledger: Ledger, fingerprint_engine: FingerprintEngine):
+    def __init__(self, ledger: Ledger, fingerprint_engine: FingerprintEngine) -> None:
         self._ledger = ledger
         self._fingerprint_engine = fingerprint_engine
 
     def submit(
-        self, text: str, domain: str, type: str = "human",
-        submitter_id: str | None = None, parent_discovery_id: str | None = None,
+        self,
+        text: str,
+        domain: str,
+        type: str = "human",
+        submitter_id: str | None = None,
+        parent_discovery_id: str | None = None,
     ) -> SubmitResult:
         validation: ValidationResult = validate_seed_text(text, domain)
         if not validation.ok:
             return SubmitResult(ok=False, feedback=validation.feedback)
 
         seed = Seed(
-            text=text, domain=domain, type=type,
-            submitter_id=submitter_id, parent_discovery_id=parent_discovery_id,
+            text=text,
+            domain=domain,
+            type=type,
+            submitter_id=submitter_id,
+            parent_discovery_id=parent_discovery_id,
         )
 
         # Concept-level uniqueness via the Fingerprint Engine (Module 3),
@@ -68,7 +76,9 @@ class SeedManager:
             SeedStatusEvent(seed_id=seed.id, status="queued", reason="submitted")
         )
         return SubmitResult(
-            ok=True, seed_id=seed.id, feedback=feedback,
+            ok=True,
+            seed_id=seed.id,
+            feedback=feedback,
             duplicate_classification=result.classification,
             duplicate_of_seed_id=result.matched_entity_id,
         )
@@ -91,7 +101,8 @@ class SeedManager:
         if consecutive_zero_pass_cycles >= EXHAUSTION_THRESHOLD_CYCLES:
             self._ledger.insert_seed_status_event(
                 SeedStatusEvent(
-                    seed_id=seed_id, status="exhausted",
+                    seed_id=seed_id,
+                    status="exhausted",
                     reason=f"{consecutive_zero_pass_cycles} consecutive cycles with zero sieve passes",
                 )
             )
@@ -116,7 +127,10 @@ class SeedManager:
         return prior["original_seed_id"], prior["chain_depth"] + 1
 
     def reseed_from_candidate(
-        self, candidate_id: str, text: str, domain: str,
+        self,
+        candidate_id: str,
+        text: str,
+        domain: str,
         operator_id: str | None = None,
     ) -> ReseedResult:
         candidate = self._ledger.get_candidate(candidate_id)
@@ -129,6 +143,7 @@ class SeedManager:
         submit_result = self.submit(text=text, domain=domain, type="derivative")
         if not submit_result.ok:
             return ReseedResult(ok=False, feedback=submit_result.feedback)
+        assert submit_result.seed_id is not None
 
         self._ledger.insert_reseed_event(
             ReseedEvent(
@@ -142,8 +157,10 @@ class SeedManager:
             )
         )
         return ReseedResult(
-            ok=True, seed_id=submit_result.seed_id,
-            original_seed_id=original_seed_id, chain_depth=chain_depth,
+            ok=True,
+            seed_id=submit_result.seed_id,
+            original_seed_id=original_seed_id,
+            chain_depth=chain_depth,
             feedback=submit_result.feedback,
             duplicate_classification=submit_result.duplicate_classification,
             duplicate_of_seed_id=submit_result.duplicate_of_seed_id,

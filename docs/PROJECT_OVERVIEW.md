@@ -9,9 +9,9 @@ the whole process is auditable and reproducible.
 
 This document explains the system end-to-end: architecture, data flow,
 modules, and the CLI surface. For step-by-step run instructions, see
-`@/Users/jounayd/PROJECTS/HANNO/MVP_USER_MANUAL.md`. For the plan driving
+[MVP_USER_MANUAL.md](MVP_USER_MANUAL.md). For the plan driving
 the Excavator's ongoing redesign, see
-`@/Users/jounayd/PROJECTS/HANNO/EXCAVATOR_MIGRATION_PLAN.md`.
+[EXCAVATOR_MIGRATION_PLAN.md](EXCAVATOR_MIGRATION_PLAN.md).
 
 ---
 
@@ -31,7 +31,7 @@ different jobs:
 
 This split exists because running one prompt that both generates ideas *and*
 tries to prove one fixed thing causes goal drift — see
-`@/Users/jounayd/PROJECTS/HANNO/EXCAVATOR_MIGRATION_PLAN.md:11-44` for the
+[EXCAVATOR_MIGRATION_PLAN.md](EXCAVATOR_MIGRATION_PLAN.md) for the
 concrete failure this fixes.
 
 ---
@@ -309,7 +309,7 @@ separate rows keyed to the candidate. This means:
 ## 6. Status of the Excavator migration plan
 
 The Excavator (EXPLORE mode) has been under active redesign per
-`@/Users/jounayd/PROJECTS/HANNO/EXCAVATOR_MIGRATION_PLAN.md`, moving from a
+[EXCAVATOR_MIGRATION_PLAN.md](EXCAVATOR_MIGRATION_PLAN.md), moving from a
 monolithic "generate + self-rate + self-verify in one prompt" design toward
 role-decomposed, externally-grounded pipeline stages. Current state:
 
@@ -328,9 +328,9 @@ role-decomposed, externally-grounded pipeline stages. Current state:
   verification backbone, not the candidate-generation/exploration strategy
   itself.
 
-See `@/Users/jounayd/PROJECTS/HANNO/EXCAVATOR_STRATEGY_AND_CAPACITY_ANALYSIS.md`
+See [EXCAVATOR_STRATEGY_AND_CAPACITY_ANALYSIS.md](EXCAVATOR_STRATEGY_AND_CAPACITY_ANALYSIS.md)
 for a deeper capacity/strategy analysis, and
-`@/Users/jounayd/PROJECTS/HANNO/LOCAL_MODEL_SETUP.md` for running against a
+[LOCAL_MODEL_SETUP.md](LOCAL_MODEL_SETUP.md) for running against a
 self-hosted model instead of the Anthropic API.
 
 ---

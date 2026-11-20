@@ -1,8 +1,9 @@
 """mathlib_search -- grounds lemma AND tactic names against the real,
 vendored Mathlib and Lean core source so a proof attempt can check a name
 exists before betting on it. Skipped entirely if the local Mathlib checkout
-isn't set up (see LOCAL_MODEL_SETUP.md) -- this tool has nothing to search
+isn't set up (see docs/development.md) -- this tool has nothing to search
 without it."""
+
 import subprocess
 import sys
 from pathlib import Path
@@ -13,15 +14,22 @@ PY = sys.executable
 SCRIPT = "skills/scripts/mathlib_search.py"
 MATHLIB_ROOT = Path("data/mathlib_cache/.lake/packages/mathlib/Mathlib")
 
-pytestmark = pytest.mark.skipif(
-    not MATHLIB_ROOT.is_dir(), reason="local Mathlib checkout not present -- see LOCAL_MODEL_SETUP.md"
-)
+pytestmark = [
+    pytest.mark.lean,
+    pytest.mark.skipif(
+        not MATHLIB_ROOT.is_dir(),
+        reason="local Mathlib checkout not present -- run `uv run poe lean:setup`",
+    ),
+]
 
 
 def search(query: str, timeout: int = 30) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [PY, SCRIPT], input=query,
-        capture_output=True, text=True, timeout=timeout,
+        [PY, SCRIPT],
+        input=query,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
     )
 
 

@@ -1,6 +1,7 @@
 """hanno.lean.autoformalize: translating an informal candidate into Lean 4
 syntax via a single one-shot Claude call (not the agentic tool loop) --
 hermetic, no real API key or network call."""
+
 import pytest
 
 from hanno.excavator.client import GenerationResult
@@ -19,11 +20,19 @@ class FakeClaudeClient:
         self.calls = 0
 
     async def generate(
-        self, prompt: str, temperature: float, max_tokens: int | None = None,
-        tools=None, tool_executor=None,
+        self,
+        prompt: str,
+        temperature: float,
+        max_tokens: int | None = None,
+        tools=None,
+        tool_executor=None,
+        **kwargs,
     ) -> GenerationResult:
         self.calls += 1
         return GenerationResult(text=self._text, input_tokens=10, output_tokens=10)
+
+    async def close(self) -> None:
+        pass
 
 
 @pytest.mark.asyncio
@@ -84,6 +93,7 @@ async def test_missing_mathlib_import_is_prepended():
 
     result = await autoformalize(candidate, client)
 
+    assert result.lean_code is not None
     assert result.lean_code.startswith("import Mathlib")
     assert "cube_minus_self_div_six" in result.lean_code
 
@@ -96,6 +106,7 @@ async def test_existing_mathlib_import_is_not_duplicated():
 
     result = await autoformalize(candidate, client)
 
+    assert result.lean_code is not None
     assert result.lean_code.count("import Mathlib") == 1
 
 

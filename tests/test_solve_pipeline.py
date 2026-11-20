@@ -3,7 +3,7 @@ exactly one given claim, with no generation/exploration/self-rating step.
 Hermetic -- autoformalize_with_retry, search_for_counterexample, and
 prove_with_retry are all faked at the hanno.solve.pipeline import site, so
 this suite never needs a real API key, network call, or Lean toolchain."""
-from pathlib import Path
+
 from unittest.mock import patch
 
 import pytest
@@ -24,10 +24,10 @@ CLAIM = "For every integer n, n^11 - n is divisible by 66."
 
 @pytest.fixture
 def ledger(tmp_path):
-    l = Ledger.connect(tmp_path / "test.db")
-    l.init_schema()
-    yield l
-    l.close()
+    db = Ledger.connect(tmp_path / "test.db")
+    db.init_schema()
+    yield db
+    db.close()
 
 
 @pytest.fixture
@@ -39,16 +39,25 @@ def seed(ledger):
 
 def _skill():
     return SkillDefinition(
-        name="run_code", description="test", command=["python3", "run_code.py"],
-        input_mode="stdin", timeout_seconds=25, max_output_chars=6000, enabled=True,
+        name="run_code",
+        description="test",
+        command=["python3", "run_code.py"],
+        input_mode="stdin",
+        timeout_seconds=25,
+        max_output_chars=6000,
+        enabled=True,
     )
 
 
-def _survivor_outcome(lean_code="import Mathlib\n\ntheorem foo (n : ℕ) : 66 ∣ (n ^ 11 - n) := by sorry"):
+def _survivor_outcome(
+    lean_code="import Mathlib\n\ntheorem foo (n : ℕ) : 66 ∣ (n ^ 11 - n) := by sorry",
+):
     return AutoformalizeWithCheckResult(
         lean_code=lean_code,
         check=CheckResult(compiles=True, trivial_by=None, stdout="", stderr="", duration_ms=100),
-        attempts=1, input_tokens=100, output_tokens=50,
+        attempts=1,
+        input_tokens=100,
+        output_tokens=50,
     )
 
 
@@ -59,7 +68,9 @@ def _untranslatable_outcome():
 def _malformed_outcome():
     return AutoformalizeWithCheckResult(
         lean_code="import Mathlib\n\ntheorem foo : Bogus := by sorry",
-        check=CheckResult(compiles=False, trivial_by=None, stdout="error", stderr="", duration_ms=100),
+        check=CheckResult(
+            compiles=False, trivial_by=None, stdout="error", stderr="", duration_ms=100
+        ),
         attempts=3,
     )
 
@@ -67,7 +78,9 @@ def _malformed_outcome():
 def _known_outcome():
     return AutoformalizeWithCheckResult(
         lean_code="import Mathlib\n\ntheorem foo : True := by sorry",
-        check=CheckResult(compiles=True, trivial_by="exact?", stdout="", stderr="", duration_ms=100),
+        check=CheckResult(
+            compiles=True, trivial_by="exact?", stdout="", stderr="", duration_ms=100
+        ),
         attempts=1,
     )
 
@@ -76,13 +89,24 @@ class FakeClient:
     async def close(self):
         pass
 
+    async def generate(self, *args, **kwargs):
+        raise AssertionError("Unexpected model call in orchestration test")
+
 
 @pytest.mark.asyncio
 async def test_untranslatable_claim_stops_before_any_discovery(ledger, seed, tmp_path):
-    with patch.object(solve_module, "autoformalize_with_retry", return_value=_untranslatable_outcome()):
+    with patch.object(
+        solve_module, "autoformalize_with_retry", return_value=_untranslatable_outcome()
+    ):
         result = await solve_claim(
-            CLAIM, seed.id, FakeClient(), tmp_path, ledger,
-            lean_timeout_s=10, max_translation_attempts=3, max_proof_attempts=5,
+            CLAIM,
+            seed.id,
+            FakeClient(),
+            tmp_path,
+            ledger,
+            lean_timeout_s=10,
+            max_translation_attempts=3,
+            max_proof_attempts=5,
         )
 
     assert result.stage_reached == "untranslatable"
@@ -97,8 +121,14 @@ async def test_untranslatable_claim_stops_before_any_discovery(ledger, seed, tmp
 async def test_malformed_claim_stops_before_any_discovery(ledger, seed, tmp_path):
     with patch.object(solve_module, "autoformalize_with_retry", return_value=_malformed_outcome()):
         result = await solve_claim(
-            CLAIM, seed.id, FakeClient(), tmp_path, ledger,
-            lean_timeout_s=10, max_translation_attempts=3, max_proof_attempts=5,
+            CLAIM,
+            seed.id,
+            FakeClient(),
+            tmp_path,
+            ledger,
+            lean_timeout_s=10,
+            max_translation_attempts=3,
+            max_proof_attempts=5,
         )
 
     assert result.stage_reached == "malformed"
@@ -110,8 +140,14 @@ async def test_malformed_claim_stops_before_any_discovery(ledger, seed, tmp_path
 async def test_trivially_known_claim_stops_before_any_discovery(ledger, seed, tmp_path):
     with patch.object(solve_module, "autoformalize_with_retry", return_value=_known_outcome()):
         result = await solve_claim(
-            CLAIM, seed.id, FakeClient(), tmp_path, ledger,
-            lean_timeout_s=10, max_translation_attempts=3, max_proof_attempts=5,
+            CLAIM,
+            seed.id,
+            FakeClient(),
+            tmp_path,
+            ledger,
+            lean_timeout_s=10,
+            max_translation_attempts=3,
+            max_proof_attempts=5,
         )
 
     assert result.stage_reached == "trivial"
@@ -122,15 +158,26 @@ async def test_trivially_known_claim_stops_before_any_discovery(ledger, seed, tm
 @pytest.mark.asyncio
 async def test_survivor_without_skill_skips_counterexample_and_proves(ledger, seed, tmp_path):
     proved = ProofResult(
-        proved=True, proof_code="import Mathlib\n\ntheorem foo (n : ℕ) : 66 ∣ (n ^ 11 - n) := by decide",
-        check=CheckResult(compiles=True, trivial_by=None, stdout="", stderr="", duration_ms=200), attempts=1,
-        input_tokens=200, output_tokens=300,
+        proved=True,
+        proof_code="import Mathlib\n\ntheorem foo (n : ℕ) : 66 ∣ (n ^ 11 - n) := by decide",
+        check=CheckResult(compiles=True, trivial_by=None, stdout="", stderr="", duration_ms=200),
+        attempts=1,
+        input_tokens=200,
+        output_tokens=300,
     )
-    with patch.object(solve_module, "autoformalize_with_retry", return_value=_survivor_outcome()), \
-         patch.object(solve_module, "prove_with_retry", return_value=proved) as mock_prove:
+    with (
+        patch.object(solve_module, "autoformalize_with_retry", return_value=_survivor_outcome()),
+        patch.object(solve_module, "prove_with_retry", return_value=proved) as mock_prove,
+    ):
         result = await solve_claim(
-            CLAIM, seed.id, FakeClient(), tmp_path, ledger,
-            lean_timeout_s=10, max_translation_attempts=3, max_proof_attempts=5,
+            CLAIM,
+            seed.id,
+            FakeClient(),
+            tmp_path,
+            ledger,
+            lean_timeout_s=10,
+            max_translation_attempts=3,
+            max_proof_attempts=5,
             run_code_skill=None,
         )
 
@@ -151,17 +198,29 @@ async def test_survivor_without_skill_skips_counterexample_and_proves(ledger, se
 @pytest.mark.asyncio
 async def test_refuted_by_counterexample_never_calls_prove(ledger, seed, tmp_path):
     ce_result = CounterexampleResult(
-        refuted=True, program="for n in range(1000): pass",
+        refuted=True,
+        program="for n in range(1000): pass",
         skill_result=SkillResult(
-            stdout="COUNTEREXAMPLE FOUND: n=5", stderr="", exit_code=0, duration_ms=100,
+            stdout="COUNTEREXAMPLE FOUND: n=5",
+            stderr="",
+            exit_code=0,
+            duration_ms=100,
         ),
     )
-    with patch.object(solve_module, "autoformalize_with_retry", return_value=_survivor_outcome()), \
-         patch.object(solve_module, "search_for_counterexample", return_value=ce_result), \
-         patch.object(solve_module, "prove_with_retry") as mock_prove:
+    with (
+        patch.object(solve_module, "autoformalize_with_retry", return_value=_survivor_outcome()),
+        patch.object(solve_module, "search_for_counterexample", return_value=ce_result),
+        patch.object(solve_module, "prove_with_retry") as mock_prove,
+    ):
         result = await solve_claim(
-            CLAIM, seed.id, FakeClient(), tmp_path, ledger,
-            lean_timeout_s=10, max_translation_attempts=3, max_proof_attempts=5,
+            CLAIM,
+            seed.id,
+            FakeClient(),
+            tmp_path,
+            ledger,
+            lean_timeout_s=10,
+            max_translation_attempts=3,
+            max_proof_attempts=5,
             run_code_skill=_skill(),
         )
 
@@ -177,18 +236,30 @@ async def test_refuted_by_counterexample_never_calls_prove(ledger, seed, tmp_pat
 @pytest.mark.asyncio
 async def test_unresolved_when_proof_search_exhausts(ledger, seed, tmp_path):
     ce_result = CounterexampleResult(
-        refuted=False, program="for n in range(1000): pass",
+        refuted=False,
+        program="for n in range(1000): pass",
         skill_result=SkillResult(
-            stdout="NO COUNTEREXAMPLE FOUND after testing 1000 cases", stderr="", exit_code=0, duration_ms=100,
+            stdout="NO COUNTEREXAMPLE FOUND after testing 1000 cases",
+            stderr="",
+            exit_code=0,
+            duration_ms=100,
         ),
     )
     unresolved = ProofResult(proved=False, proof_code="partial attempt", check=None, attempts=5)
-    with patch.object(solve_module, "autoformalize_with_retry", return_value=_survivor_outcome()), \
-         patch.object(solve_module, "search_for_counterexample", return_value=ce_result), \
-         patch.object(solve_module, "prove_with_retry", return_value=unresolved):
+    with (
+        patch.object(solve_module, "autoformalize_with_retry", return_value=_survivor_outcome()),
+        patch.object(solve_module, "search_for_counterexample", return_value=ce_result),
+        patch.object(solve_module, "prove_with_retry", return_value=unresolved),
+    ):
         result = await solve_claim(
-            CLAIM, seed.id, FakeClient(), tmp_path, ledger,
-            lean_timeout_s=10, max_translation_attempts=3, max_proof_attempts=5,
+            CLAIM,
+            seed.id,
+            FakeClient(),
+            tmp_path,
+            ledger,
+            lean_timeout_s=10,
+            max_translation_attempts=3,
+            max_proof_attempts=5,
             run_code_skill=_skill(),
         )
 
@@ -199,22 +270,39 @@ async def test_unresolved_when_proof_search_exhausts(ledger, seed, tmp_path):
 
 def _mathlib_search_skill():
     return SkillDefinition(
-        name="mathlib_search", description="test", command=["python3", "mathlib_search.py"],
-        input_mode="stdin", timeout_seconds=20, max_output_chars=4000, enabled=True,
+        name="mathlib_search",
+        description="test",
+        command=["python3", "mathlib_search.py"],
+        input_mode="stdin",
+        timeout_seconds=20,
+        max_output_chars=4000,
+        enabled=True,
     )
 
 
 @pytest.mark.asyncio
 async def test_mathlib_search_skill_is_offered_to_formalize_and_prove(ledger, seed, tmp_path):
     proved = ProofResult(
-        proved=True, proof_code="import Mathlib\n\ntheorem foo (n : ℕ) : 66 ∣ (n ^ 11 - n) := by decide",
-        check=CheckResult(compiles=True, trivial_by=None, stdout="", stderr="", duration_ms=200), attempts=1,
+        proved=True,
+        proof_code="import Mathlib\n\ntheorem foo (n : ℕ) : 66 ∣ (n ^ 11 - n) := by decide",
+        check=CheckResult(compiles=True, trivial_by=None, stdout="", stderr="", duration_ms=200),
+        attempts=1,
     )
-    with patch.object(solve_module, "autoformalize_with_retry", return_value=_survivor_outcome()) as mock_af, \
-         patch.object(solve_module, "prove_with_retry", return_value=proved) as mock_prove:
+    with (
+        patch.object(
+            solve_module, "autoformalize_with_retry", return_value=_survivor_outcome()
+        ) as mock_af,
+        patch.object(solve_module, "prove_with_retry", return_value=proved) as mock_prove,
+    ):
         await solve_claim(
-            CLAIM, seed.id, FakeClient(), tmp_path, ledger,
-            lean_timeout_s=10, max_translation_attempts=3, max_proof_attempts=5,
+            CLAIM,
+            seed.id,
+            FakeClient(),
+            tmp_path,
+            ledger,
+            lean_timeout_s=10,
+            max_translation_attempts=3,
+            max_proof_attempts=5,
             mathlib_search_skill=_mathlib_search_skill(),
         )
 
@@ -227,23 +315,36 @@ async def test_mathlib_search_skill_is_offered_to_formalize_and_prove(ledger, se
 
 
 @pytest.mark.asyncio
-async def test_mathlib_search_invocations_during_prove_are_recorded_in_the_ledger(ledger, seed, tmp_path, monkeypatch):
+async def test_mathlib_search_invocations_during_prove_are_recorded_in_the_ledger(
+    ledger, seed, tmp_path, monkeypatch
+):
     proved = ProofResult(
-        proved=True, proof_code="import Mathlib\n\ntheorem foo (n : ℕ) : 66 ∣ (n ^ 11 - n) := by decide",
-        check=CheckResult(compiles=True, trivial_by=None, stdout="", stderr="", duration_ms=200), attempts=1,
+        proved=True,
+        proof_code="import Mathlib\n\ntheorem foo (n : ℕ) : 66 ∣ (n ^ 11 - n) := by decide",
+        check=CheckResult(compiles=True, trivial_by=None, stdout="", stderr="", duration_ms=200),
+        attempts=1,
     )
 
     async def prove_side_effect(*args, tools=None, tool_executor=None, **kwargs):
+        assert tool_executor is not None
         tool_executor("mathlib_search", {"input": "Nat.dvd_of_dvd_of_dvd_mul_left"})
         return proved
 
     fake_skill_result = SkillResult(stdout="NOT FOUND", stderr="", exit_code=0, duration_ms=50)
-    with patch.object(solve_module, "autoformalize_with_retry", return_value=_survivor_outcome()), \
-         patch.object(solve_module, "prove_with_retry", side_effect=prove_side_effect), \
-         patch.object(solve_module, "run_skill", return_value=fake_skill_result):
+    with (
+        patch.object(solve_module, "autoformalize_with_retry", return_value=_survivor_outcome()),
+        patch.object(solve_module, "prove_with_retry", side_effect=prove_side_effect),
+        patch.object(solve_module, "run_skill", return_value=fake_skill_result),
+    ):
         result = await solve_claim(
-            CLAIM, seed.id, FakeClient(), tmp_path, ledger,
-            lean_timeout_s=10, max_translation_attempts=3, max_proof_attempts=5,
+            CLAIM,
+            seed.id,
+            FakeClient(),
+            tmp_path,
+            ledger,
+            lean_timeout_s=10,
+            max_translation_attempts=3,
+            max_proof_attempts=5,
             mathlib_search_skill=_mathlib_search_skill(),
         )
 
@@ -255,22 +356,37 @@ async def test_mathlib_search_invocations_during_prove_are_recorded_in_the_ledge
 
 def _lean_goal_solver_skill():
     return SkillDefinition(
-        name="lean_goal_solver", description="test", command=["python3", "lean_goal_solver.py"],
-        input_mode="stdin", timeout_seconds=200, max_output_chars=2000, enabled=True,
+        name="lean_goal_solver",
+        description="test",
+        command=["python3", "lean_goal_solver.py"],
+        input_mode="stdin",
+        timeout_seconds=200,
+        max_output_chars=2000,
+        enabled=True,
     )
 
 
 @pytest.mark.asyncio
 async def test_both_grounding_skills_are_offered_together(ledger, seed, tmp_path):
     proved = ProofResult(
-        proved=True, proof_code="import Mathlib\n\ntheorem foo (n : ℕ) : 66 ∣ (n ^ 11 - n) := by decide",
-        check=CheckResult(compiles=True, trivial_by=None, stdout="", stderr="", duration_ms=200), attempts=1,
+        proved=True,
+        proof_code="import Mathlib\n\ntheorem foo (n : ℕ) : 66 ∣ (n ^ 11 - n) := by decide",
+        check=CheckResult(compiles=True, trivial_by=None, stdout="", stderr="", duration_ms=200),
+        attempts=1,
     )
-    with patch.object(solve_module, "autoformalize_with_retry", return_value=_survivor_outcome()), \
-         patch.object(solve_module, "prove_with_retry", return_value=proved) as mock_prove:
+    with (
+        patch.object(solve_module, "autoformalize_with_retry", return_value=_survivor_outcome()),
+        patch.object(solve_module, "prove_with_retry", return_value=proved) as mock_prove,
+    ):
         await solve_claim(
-            CLAIM, seed.id, FakeClient(), tmp_path, ledger,
-            lean_timeout_s=10, max_translation_attempts=3, max_proof_attempts=5,
+            CLAIM,
+            seed.id,
+            FakeClient(),
+            tmp_path,
+            ledger,
+            lean_timeout_s=10,
+            max_translation_attempts=3,
+            max_proof_attempts=5,
             mathlib_search_skill=_mathlib_search_skill(),
             lean_goal_solver_skill=_lean_goal_solver_skill(),
         )
@@ -285,11 +401,14 @@ async def test_grounding_executor_dispatches_to_the_correct_skill_by_name(ledger
     # THAT skill, not silently fall back to mathlib_search (a real risk
     # once the executor has more than one skill to choose between).
     proved = ProofResult(
-        proved=True, proof_code="import Mathlib\n\ntheorem foo (n : ℕ) : 66 ∣ (n ^ 11 - n) := by decide",
-        check=CheckResult(compiles=True, trivial_by=None, stdout="", stderr="", duration_ms=200), attempts=1,
+        proved=True,
+        proof_code="import Mathlib\n\ntheorem foo (n : ℕ) : 66 ∣ (n ^ 11 - n) := by decide",
+        check=CheckResult(compiles=True, trivial_by=None, stdout="", stderr="", duration_ms=200),
+        attempts=1,
     )
 
     async def prove_side_effect(*args, tools=None, tool_executor=None, **kwargs):
+        assert tool_executor is not None
         tool_executor("lean_goal_solver", {"input": "theorem goal (n : ℕ) : n + 1 > n"})
         return proved
 
@@ -297,14 +416,24 @@ async def test_grounding_executor_dispatches_to_the_correct_skill_by_name(ledger
 
     def fake_run_skill(skill, input_text):
         run_skill_calls.append(skill.name)
-        return SkillResult(stdout="WORKS -- `norm_num` closes this goal.", stderr="", exit_code=0, duration_ms=50)
+        return SkillResult(
+            stdout="WORKS -- `norm_num` closes this goal.", stderr="", exit_code=0, duration_ms=50
+        )
 
-    with patch.object(solve_module, "autoformalize_with_retry", return_value=_survivor_outcome()), \
-         patch.object(solve_module, "prove_with_retry", side_effect=prove_side_effect), \
-         patch.object(solve_module, "run_skill", side_effect=fake_run_skill):
+    with (
+        patch.object(solve_module, "autoformalize_with_retry", return_value=_survivor_outcome()),
+        patch.object(solve_module, "prove_with_retry", side_effect=prove_side_effect),
+        patch.object(solve_module, "run_skill", side_effect=fake_run_skill),
+    ):
         result = await solve_claim(
-            CLAIM, seed.id, FakeClient(), tmp_path, ledger,
-            lean_timeout_s=10, max_translation_attempts=3, max_proof_attempts=5,
+            CLAIM,
+            seed.id,
+            FakeClient(),
+            tmp_path,
+            ledger,
+            lean_timeout_s=10,
+            max_translation_attempts=3,
+            max_proof_attempts=5,
             mathlib_search_skill=_mathlib_search_skill(),
             lean_goal_solver_skill=_lean_goal_solver_skill(),
         )
@@ -317,16 +446,28 @@ async def test_grounding_executor_dispatches_to_the_correct_skill_by_name(ledger
 @pytest.mark.asyncio
 async def test_prover_client_is_used_for_proving_not_the_main_client(ledger, seed, tmp_path):
     proved = ProofResult(
-        proved=True, proof_code="import Mathlib\n\ntheorem foo (n : ℕ) : 66 ∣ (n ^ 11 - n) := by decide",
-        check=CheckResult(compiles=True, trivial_by=None, stdout="", stderr="", duration_ms=200), attempts=1,
+        proved=True,
+        proof_code="import Mathlib\n\ntheorem foo (n : ℕ) : 66 ∣ (n ^ 11 - n) := by decide",
+        check=CheckResult(compiles=True, trivial_by=None, stdout="", stderr="", duration_ms=200),
+        attempts=1,
     )
     main_client = FakeClient()
     prover_client = FakeClient()
-    with patch.object(solve_module, "autoformalize_with_retry", return_value=_survivor_outcome()) as mock_af, \
-         patch.object(solve_module, "prove_with_retry", return_value=proved) as mock_prove:
+    with (
+        patch.object(
+            solve_module, "autoformalize_with_retry", return_value=_survivor_outcome()
+        ) as mock_af,
+        patch.object(solve_module, "prove_with_retry", return_value=proved) as mock_prove,
+    ):
         await solve_claim(
-            CLAIM, seed.id, main_client, tmp_path, ledger,
-            lean_timeout_s=10, max_translation_attempts=3, max_proof_attempts=5,
+            CLAIM,
+            seed.id,
+            main_client,
+            tmp_path,
+            ledger,
+            lean_timeout_s=10,
+            max_translation_attempts=3,
+            max_proof_attempts=5,
             prover_client=prover_client,
         )
 
@@ -336,10 +477,18 @@ async def test_prover_client_is_used_for_proving_not_the_main_client(ledger, see
 
 @pytest.mark.asyncio
 async def test_candidate_row_carries_the_exact_claim_unmodified(ledger, seed, tmp_path):
-    with patch.object(solve_module, "autoformalize_with_retry", return_value=_untranslatable_outcome()):
+    with patch.object(
+        solve_module, "autoformalize_with_retry", return_value=_untranslatable_outcome()
+    ):
         result = await solve_claim(
-            CLAIM, seed.id, FakeClient(), tmp_path, ledger,
-            lean_timeout_s=10, max_translation_attempts=3, max_proof_attempts=5,
+            CLAIM,
+            seed.id,
+            FakeClient(),
+            tmp_path,
+            ledger,
+            lean_timeout_s=10,
+            max_translation_attempts=3,
+            max_proof_attempts=5,
         )
 
     candidate = ledger.get_candidate(result.candidate_id)

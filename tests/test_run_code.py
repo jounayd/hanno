@@ -3,6 +3,7 @@ code and return its output, report exceptions back instead of crashing,
 enforce the wall-clock timeout, and block the ordinary network paths. The
 containment here is best-effort, not a security proof — these tests check
 that the guardrails engage, not that a hostile program is impossible."""
+
 import subprocess
 import sys
 
@@ -12,8 +13,11 @@ SCRIPT = "skills/scripts/run_code.py"
 
 def run_code(program: str, timeout: int = 20) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [PY, SCRIPT], input=program,
-        capture_output=True, text=True, timeout=timeout,
+        [PY, SCRIPT],
+        input=program,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
     )
 
 
@@ -25,10 +29,7 @@ def test_runs_code_and_returns_printed_output():
 
 def test_a_real_verification_loop():
     # The intended use: search for a counterexample and report it.
-    program = (
-        "bad = [n for n in range(2, 50) if (4*n) % 7 == 0]\n"
-        "print('hits:', bad)"
-    )
+    program = "bad = [n for n in range(2, 50) if (4*n) % 7 == 0]\nprint('hits:', bad)"
     proc = run_code(program)
     assert "hits:" in proc.stdout
 
@@ -55,6 +56,7 @@ def test_wall_clock_timeout_is_enforced_by_caller():
     # The runner (and this test) impose a wall-clock timeout; an infinite
     # loop must be killed rather than hang forever.
     import pytest
+
     with pytest.raises(subprocess.TimeoutExpired):
         run_code("while True:\n    pass", timeout=3)
 

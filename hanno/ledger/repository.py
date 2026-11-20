@@ -4,6 +4,7 @@ Deliberately no update_* or delete_* method exists anywhere in this class.
 That is the application-layer half of append-only enforcement (the other
 half is the DB triggers in schema.sql).
 """
+
 from __future__ import annotations
 
 import json
@@ -22,16 +23,17 @@ from hanno.ledger.models import (
     SeedStatEvent,
     SeedStatusEvent,
     ToolInvocation,
+    UsageSummary,
     now_iso,
 )
 
 
 class Ledger:
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
     @classmethod
-    def connect(cls, db_path: str | Path) -> "Ledger":
+    def connect(cls, db_path: str | Path) -> Ledger:
         conn = db_module.connect(db_path)
         return cls(conn)
 
@@ -50,8 +52,15 @@ class Ledger:
             """INSERT INTO seeds
                (id, text, type, domain, submitter_id, parent_discovery_id, submitted_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (seed.id, seed.text, seed.type, seed.domain, seed.submitter_id,
-             seed.parent_discovery_id, seed.submitted_at),
+            (
+                seed.id,
+                seed.text,
+                seed.type,
+                seed.domain,
+                seed.submitter_id,
+                seed.parent_discovery_id,
+                seed.submitted_at,
+            ),
         )
 
     def insert_seed_status_event(self, event: SeedStatusEvent) -> None:
@@ -66,8 +75,14 @@ class Ledger:
             """INSERT INTO seed_stat_events
                (id, seed_id, cycles_run_delta, candidates_delta, discoveries_delta, recorded_at)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (event.id, event.seed_id, event.cycles_run_delta, event.candidates_delta,
-             event.discoveries_delta, event.recorded_at),
+            (
+                event.id,
+                event.seed_id,
+                event.cycles_run_delta,
+                event.candidates_delta,
+                event.discoveries_delta,
+                event.recorded_at,
+            ),
         )
 
     def get_seed(self, seed_id: str) -> sqlite3.Row | None:
@@ -123,20 +138,39 @@ class Ledger:
                 claim_type, steering_hint, iteration, refined_from_candidate_id, generated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                candidate.id, candidate.seed_id, candidate.domain, candidate.temperature,
-                candidate.prompt_variant, candidate.model, candidate.prompt_text, candidate.raw_text,
-                candidate.core_claim, candidate.formal_statement, candidate.intuition,
+                candidate.id,
+                candidate.seed_id,
+                candidate.domain,
+                candidate.temperature,
+                candidate.prompt_variant,
+                candidate.model,
+                candidate.prompt_text,
+                candidate.raw_text,
+                candidate.core_claim,
+                candidate.formal_statement,
+                candidate.intuition,
                 json.dumps(candidate.connections) if candidate.connections else None,
-                candidate.self_assessed_novelty, candidate.identified_weaknesses,
-                candidate.parse_status, candidate.parse_error, candidate.duplicate_status,
+                candidate.self_assessed_novelty,
+                candidate.identified_weaknesses,
+                candidate.parse_status,
+                candidate.parse_error,
+                candidate.duplicate_status,
                 candidate.exploration_signal,
                 json.dumps(candidate.suggested_seeds) if candidate.suggested_seeds else None,
-                candidate.input_tokens, candidate.output_tokens, candidate.reasoning_effort,
-                candidate.self_rated_novelty, candidate.self_rated_rigor, candidate.path_score,
+                candidate.input_tokens,
+                candidate.output_tokens,
+                candidate.reasoning_effort,
+                candidate.self_rated_novelty,
+                candidate.self_rated_rigor,
+                candidate.path_score,
                 json.dumps(candidate.numeric_check) if candidate.numeric_check else None,
-                None if candidate.numeric_check_result is None else int(candidate.numeric_check_result),
+                None
+                if candidate.numeric_check_result is None
+                else int(candidate.numeric_check_result),
                 candidate.claim_type,
-                candidate.steering_hint, candidate.iteration, candidate.refined_from_candidate_id,
+                candidate.steering_hint,
+                candidate.iteration,
+                candidate.refined_from_candidate_id,
                 candidate.generated_at,
             ),
         )
@@ -159,20 +193,100 @@ class Ledger:
             """INSERT INTO excavation_cycles
                (id, seed_id, candidates_requested, candidates_parsed_ok,
                 candidates_failed, total_cost_usd, total_input_tokens,
-                total_output_tokens, iteration, refined_from_candidate_id, started_at, completed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (cycle.id, cycle.seed_id, cycle.candidates_requested, cycle.candidates_parsed_ok,
-             cycle.candidates_failed, cycle.total_cost_usd, cycle.total_input_tokens,
-             cycle.total_output_tokens, cycle.iteration, cycle.refined_from_candidate_id,
-             cycle.started_at, cycle.completed_at),
+                total_output_tokens, iteration, refined_from_candidate_id, started_at, completed_at, usage_accounted)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                cycle.id,
+                cycle.seed_id,
+                cycle.candidates_requested,
+                cycle.candidates_parsed_ok,
+                cycle.candidates_failed,
+                cycle.total_cost_usd,
+                cycle.total_input_tokens,
+                cycle.total_output_tokens,
+                cycle.iteration,
+                cycle.refined_from_candidate_id,
+                cycle.started_at,
+                cycle.completed_at,
+                int(cycle.usage_accounted),
+            ),
         )
 
     def get_today_spend_usd(self) -> float:
         row = self._conn.execute(
-            """SELECT COALESCE(SUM(total_cost_usd), 0) AS total FROM excavation_cycles
-               WHERE date(started_at) = date('now')"""
+            """SELECT COALESCE(SUM(cost), 0) AS total FROM (
+                 SELECT total_cost_usd AS cost FROM excavation_cycles
+                 WHERE date(started_at) = date('now') AND usage_accounted = 0
+                 UNION ALL
+                 SELECT COALESCE(s.actual_cost_usd, r.reserved_cost_usd) AS cost
+                 FROM model_call_reservations r
+                 LEFT JOIN model_call_settlements s ON s.call_id = r.id
+                 WHERE date(r.started_at) = date('now')
+               )"""
         ).fetchone()
         return float(row["total"])
+
+    def get_usage_summary(self) -> UsageSummary:
+        """Combine request usage with cycles that predate request accounting.
+
+        Unsettled requests have no known token usage or cost. Report their
+        reservations separately; get_today_spend_usd includes them in the
+        budget only when they started today (UTC).
+        """
+        usage = self._conn.execute(
+            """SELECT COALESCE(SUM(cost), 0) AS cost,
+                      COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                      COALESCE(SUM(output_tokens), 0) AS output_tokens
+               FROM (
+                 SELECT total_cost_usd AS cost, total_input_tokens AS input_tokens,
+                        total_output_tokens AS output_tokens
+                 FROM excavation_cycles WHERE usage_accounted = 0
+                 UNION ALL
+                 SELECT actual_cost_usd, input_tokens, output_tokens
+                 FROM model_call_settlements
+               )"""
+        ).fetchone()
+        requests = self._conn.execute(
+            """SELECT COUNT(s.call_id) AS settled,
+                      COUNT(*) - COUNT(s.call_id) AS pending,
+                      COALESCE(SUM(CASE WHEN s.call_id IS NULL
+                          THEN r.reserved_cost_usd ELSE 0 END), 0) AS reserved
+               FROM model_call_reservations r
+               LEFT JOIN model_call_settlements s ON s.call_id = r.id"""
+        ).fetchone()
+        return UsageSummary(
+            estimated_cost_usd=float(usage["cost"]),
+            input_tokens=int(usage["input_tokens"]),
+            output_tokens=int(usage["output_tokens"]),
+            settled_requests=int(requests["settled"]),
+            pending_requests=int(requests["pending"]),
+            reserved_cost_usd=float(requests["reserved"]),
+        )
+
+    def reserve_model_call(self, call_id: str, model: str, amount: float, limit: float) -> bool:
+        """Atomically reserve a budget shared by every client/process using this ledger."""
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            if self.get_today_spend_usd() + amount > limit:
+                self._conn.execute("ROLLBACK")
+                return False
+            self._conn.execute(
+                "INSERT INTO model_call_reservations VALUES (?, ?, ?, ?)",
+                (call_id, model, amount, now_iso()),
+            )
+            self._conn.execute("COMMIT")
+            return True
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+
+    def settle_model_call(
+        self, call_id: str, cost: float, input_tokens: int, output_tokens: int
+    ) -> None:
+        self._conn.execute(
+            "INSERT INTO model_call_settlements VALUES (?, ?, ?, ?, ?)",
+            (call_id, cost, input_tokens, output_tokens, now_iso()),
+        )
 
     def list_excavation_cycles(self) -> list[dict]:
         rows = self._conn.execute(
@@ -188,10 +302,21 @@ class Ledger:
         self._conn.execute(
             """INSERT INTO tool_invocations
                (id, candidate_id, skill_name, input_text, stdout, stderr,
-                exit_code, duration_ms, timed_out, invoked_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (inv.id, inv.candidate_id, inv.skill_name, inv.input_text, inv.stdout,
-             inv.stderr, inv.exit_code, inv.duration_ms, int(inv.timed_out), inv.invoked_at),
+                exit_code, duration_ms, timed_out, invoked_at, phase)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                inv.id,
+                inv.candidate_id,
+                inv.skill_name,
+                inv.input_text,
+                inv.stdout,
+                inv.stderr,
+                inv.exit_code,
+                inv.duration_ms,
+                int(inv.timed_out),
+                inv.invoked_at,
+                inv.phase,
+            ),
         )
 
     def list_tool_invocations_by_candidate(self, candidate_id: str) -> list[dict]:
@@ -211,8 +336,17 @@ class Ledger:
                (id, domain, model, temperature, prompt_variant, reasoning_effort,
                 candidate_id, score, recorded_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (event.id, event.domain, event.model, event.temperature, event.prompt_variant,
-             event.reasoning_effort, event.candidate_id, event.score, event.recorded_at),
+            (
+                event.id,
+                event.domain,
+                event.model,
+                event.temperature,
+                event.prompt_variant,
+                event.reasoning_effort,
+                event.candidate_id,
+                event.score,
+                event.recorded_at,
+            ),
         )
 
     def get_arm_stats(self, domain: str) -> list[dict]:
@@ -230,18 +364,33 @@ class Ledger:
     # ------------------------------------------------------------------
 
     def insert_fingerprint(
-        self, hash: str, entity_type: str, entity_id: str,
-        compressed_vector: list[float], full_vector: list[float],
-        embedding_model: str, compression_model_version: str,
+        self,
+        hash: str,
+        entity_type: str,
+        entity_id: str,
+        compressed_vector: list[float],
+        full_vector: list[float],
+        embedding_model: str,
+        compression_model_version: str,
     ) -> None:
         import uuid
+
         self._conn.execute(
             """INSERT INTO fingerprints
                (id, hash, entity_type, entity_id, compressed_vector, full_vector,
                 embedding_model, compression_model_version, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (str(uuid.uuid4()), hash, entity_type, entity_id, json.dumps(compressed_vector),
-             json.dumps(full_vector), embedding_model, compression_model_version, now_iso()),
+            (
+                str(uuid.uuid4()),
+                hash,
+                entity_type,
+                entity_id,
+                json.dumps(compressed_vector),
+                json.dumps(full_vector),
+                embedding_model,
+                compression_model_version,
+                now_iso(),
+            ),
         )
 
     def list_fingerprints_by_entity_type(self, entity_type: str) -> list[dict]:
@@ -259,7 +408,9 @@ class Ledger:
         return [json.loads(r["full_vector"]) for r in rows]
 
     def get_full_vectors_for_entities(
-        self, entity_type: str, entity_ids: list[str],
+        self,
+        entity_type: str,
+        entity_ids: list[str],
     ) -> dict[str, list[float]]:
         if not entity_ids:
             return {}
@@ -272,17 +423,27 @@ class Ledger:
         return {r["entity_id"]: json.loads(r["full_vector"]) for r in rows}
 
     def insert_collision_event(
-        self, query_fingerprint_hash: str, matched_fingerprint_hash: str | None,
-        similarity_score: float | None, classification: str,
+        self,
+        query_fingerprint_hash: str,
+        matched_fingerprint_hash: str | None,
+        similarity_score: float | None,
+        classification: str,
     ) -> None:
         import uuid
+
         self._conn.execute(
             """INSERT INTO collision_events
                (id, query_fingerprint_hash, matched_fingerprint_hash,
                 similarity_score, classification, checked_at)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (str(uuid.uuid4()), query_fingerprint_hash, matched_fingerprint_hash,
-             similarity_score, classification, now_iso()),
+            (
+                str(uuid.uuid4()),
+                query_fingerprint_hash,
+                matched_fingerprint_hash,
+                similarity_score,
+                classification,
+                now_iso(),
+            ),
         )
 
     def get_active_reducer_version(self) -> dict | None:
@@ -292,17 +453,31 @@ class Ledger:
         return dict(row) if row else None
 
     def insert_reducer_version(
-        self, version: int, input_dimensions: int, output_dimensions: int,
-        mean_json: str, components_json: str, fitted_on_count: int,
+        self,
+        version: int,
+        input_dimensions: int,
+        output_dimensions: int,
+        mean_json: str,
+        components_json: str,
+        fitted_on_count: int,
     ) -> None:
         import uuid
+
         self._conn.execute(
             """INSERT INTO reducer_versions
                (id, version, input_dimensions, output_dimensions, mean_json,
                 components_json, fitted_on_count, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (str(uuid.uuid4()), version, input_dimensions, output_dimensions,
-             mean_json, components_json, fitted_on_count, now_iso()),
+            (
+                str(uuid.uuid4()),
+                version,
+                input_dimensions,
+                output_dimensions,
+                mean_json,
+                components_json,
+                fitted_on_count,
+                now_iso(),
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -310,21 +485,35 @@ class Ledger:
     # ------------------------------------------------------------------
 
     def insert_calibration_event(
-        self, module: str, parameter: str, reason: str,
-        old_value: str | None = None, new_value: str | None = None,
+        self,
+        module: str,
+        parameter: str,
+        reason: str,
+        old_value: str | None = None,
+        new_value: str | None = None,
         supporting_data: str | None = None,
     ) -> None:
         import uuid
+
         self._conn.execute(
             """INSERT INTO calibration_events
                (id, module, parameter, old_value, new_value, reason, supporting_data, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (str(uuid.uuid4()), module, parameter, old_value, new_value, reason,
-             supporting_data, now_iso()),
+            (
+                str(uuid.uuid4()),
+                module,
+                parameter,
+                old_value,
+                new_value,
+                reason,
+                supporting_data,
+                now_iso(),
+            ),
         )
 
     def insert_config_snapshot(self, snapshot_json: str) -> None:
         import uuid
+
         self._conn.execute(
             "INSERT INTO config_snapshots (id, snapshot_json, created_at) VALUES (?, ?, ?)",
             (str(uuid.uuid4()), snapshot_json, now_iso()),
@@ -353,11 +542,16 @@ class Ledger:
                 trigger_conditions, triggering_candidates, chain_depth, operator_id, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                event.id, event.original_seed_id, event.parent_seed_id,
-                event.generated_reseed_id, event.trigger_type,
+                event.id,
+                event.original_seed_id,
+                event.parent_seed_id,
+                event.generated_reseed_id,
+                event.trigger_type,
                 json.dumps(event.trigger_conditions) if event.trigger_conditions else None,
                 json.dumps(event.triggering_candidates) if event.triggering_candidates else None,
-                event.chain_depth, event.operator_id, event.created_at,
+                event.chain_depth,
+                event.operator_id,
+                event.created_at,
             ),
         )
 
@@ -388,10 +582,16 @@ class Ledger:
                 lean_stdout, lean_stderr, result, execution_time_ms, verified_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                verification.id, verification.candidate_id, verification.lean_code,
-                verification.translation_confidence, verification.translation_attempt_number,
-                verification.lean_stdout, verification.lean_stderr, verification.result,
-                verification.execution_time_ms, verification.verified_at,
+                verification.id,
+                verification.candidate_id,
+                verification.lean_code,
+                verification.translation_confidence,
+                verification.translation_attempt_number,
+                verification.lean_stdout,
+                verification.lean_stderr,
+                verification.result,
+                verification.execution_time_ms,
+                verification.verified_at,
             ),
         )
 
@@ -424,19 +624,27 @@ class Ledger:
                 human_reviewed, human_reviewer_id, human_verdict, human_notes, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                discovery.id, discovery.candidate_id, discovery.fingerprint_hash,
-                discovery.seed_id, discovery.domain, discovery.tier, discovery.statement,
-                discovery.formal_statement, discovery.sieve_score, discovery.verification_result,
+                discovery.id,
+                discovery.candidate_id,
+                discovery.fingerprint_hash,
+                discovery.seed_id,
+                discovery.domain,
+                discovery.tier,
+                discovery.statement,
+                discovery.formal_statement,
+                discovery.sieve_score,
+                discovery.verification_result,
                 None if discovery.lean_verified is None else int(discovery.lean_verified),
-                int(discovery.human_reviewed), discovery.human_reviewer_id,
-                discovery.human_verdict, discovery.human_notes, discovery.created_at,
+                int(discovery.human_reviewed),
+                discovery.human_reviewer_id,
+                discovery.human_verdict,
+                discovery.human_notes,
+                discovery.created_at,
             ),
         )
 
     def list_discoveries(self) -> list[dict]:
-        rows = self._conn.execute(
-            "SELECT * FROM discoveries ORDER BY created_at ASC"
-        ).fetchall()
+        rows = self._conn.execute("SELECT * FROM discoveries ORDER BY created_at ASC").fetchall()
         return [dict(r) for r in rows]
 
     # ------------------------------------------------------------------
@@ -444,12 +652,27 @@ class Ledger:
     # ------------------------------------------------------------------
 
     TABLES = [
-        "seeds", "seed_status_events", "seed_stat_events", "candidates",
-        "excavation_cycles", "fingerprints", "collision_events", "reducer_versions",
-        "sieve_evaluations", "lean_verifications", "science_verifications",
-        "philosophy_verifications", "discoveries", "human_reviews",
-        "calibration_events", "config_snapshots", "reseed_events", "arm_score_events",
+        "seeds",
+        "seed_status_events",
+        "seed_stat_events",
+        "candidates",
+        "excavation_cycles",
+        "fingerprints",
+        "collision_events",
+        "reducer_versions",
+        "sieve_evaluations",
+        "lean_verifications",
+        "science_verifications",
+        "philosophy_verifications",
+        "discoveries",
+        "human_reviews",
+        "calibration_events",
+        "config_snapshots",
+        "reseed_events",
+        "arm_score_events",
         "tool_invocations",
+        "model_call_reservations",
+        "model_call_settlements",
     ]
 
     def export_json(self, path: str | Path) -> None:

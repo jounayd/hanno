@@ -1,34 +1,164 @@
+[build-system]
+requires = ["setuptools>=84.2.1"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "hanno"
 version = "0.1.0"
 description = "Project Hanno — knowledge mining system (MVP)"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "typer>=0.12.0",
-    "pydantic>=2.6.0",
-    "pydantic-settings>=2.2.0",
-    "pyyaml>=6.0",
-    "anthropic>=0.34.0",
-    "openai>=1.0.0",
-    "sentence-transformers>=3.0.0",
-    "scikit-learn>=1.4.0",
-    "numpy>=1.26.0",
-    "fastapi>=0.110.0",
-    "uvicorn[standard]>=0.29.0",
+    "typer>=0.29.2",
+    "pydantic>=2.14.3",
+    "pydantic-settings>=2.16.3",
+    "pyyaml>=6.0.3",
+    "anthropic>=2.10.0",
+    "openai>=3.55.0",
+    "sentence-transformers>=6.3.0",
+    "torch>=2.15.0",
+    "scikit-learn>=1.9.1",
+    "numpy>=2.4.6; python_version < '3.12'",
+    "numpy>=2.5.5; python_version >= '3.12'",
+    "fastapi>=0.163.2",
+    "uvicorn[standard]>=0.54.0",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.23.0",
+    "httpx>=0.28.1",
+    "httpx2>=2.16.2",
+    "pip-audit>=2.10.1",
+    "poethepoet>=0.49.0",
+    "pyright[nodejs]>=1.1.414",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.5.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.5",
+    "types-PyYAML>=6.0.12.20261113",
 ]
+
+[project.urls]
+Repository = "https://github.com/jounayd/hanno"
+Issues = "https://github.com/jounayd/hanno/issues"
 
 [project.scripts]
 hanno = "hanno.cli.main:app"
 
-[build-system]
-requires = ["setuptools>=68.0"]
-build-backend = "setuptools.build_meta"
-
 [tool.setuptools.packages.find]
 include = ["hanno*"]
+
+[tool.setuptools.package-data]
+hanno = ["ledger/*.sql", "ui/static/*", "viz/*.html"]
+
+[tool.setuptools.data-files]
+"share/hanno/config" = ["config/default.yaml"]
+"share/hanno/benchmarks" = ["benchmarks/*.yaml"]
+"share/hanno/skills" = ["skills/*.yaml"]
+"share/hanno/skills/scripts" = ["skills/scripts/*.py"]
+
+# Embedding tests and local use need no CUDA toolkit. macOS uses PyPI's native wheels.
+# https://docs.astral.sh/uv/guides/integration/pytorch/
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "ANN"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/**/*.py" = ["ANN"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-config", "--strict-markers", "-ra"]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "embeddings: requires the sentence-transformers model (downloaded on first use)",
+    "lean: requires the local Lean and Mathlib project",
+]
+
+[tool.coverage.run]
+source = ["hanno"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+
+# Keep these task names aligned with docs/development.md and CLI hints.
+[tool.poe.tasks.check]
+help = "Run static checks and all available tests; unavailable Lean integrations may skip"
+sequence = ["format:check", "lint", "typecheck", "docs:check", "frontend:check", "test"]
+
+[tool.poe.tasks."check:fast"]
+help = "Run static checks and unit tests without model downloads or Lean"
+sequence = ["format:check", "lint", "typecheck", "docs:check", "frontend:check", "test:unit"]
+
+[tool.poe.tasks."check:full"]
+help = "Require pinned Lean/Mathlib, then run static checks and the complete test suite"
+sequence = ["lean:check", "check"]
+
+[tool.poe.groups.quality]
+heading = "Code quality"
+
+[tool.poe.groups.quality.tasks]
+format = { cmd = "ruff format .", help = "Format Python sources" }
+"format:check" = { cmd = "ruff format --check .", help = "Check Python formatting" }
+lint = { cmd = "ruff check .", help = "Run static lint checks" }
+"lint:fix" = { cmd = "ruff check --fix .", help = "Apply safe lint fixes" }
+typecheck = { cmd = "pyright", help = "Type-check application, tools, and tests" }
+"docs:check" = { cmd = "python scripts/check_docs.py", help = "Check local documentation links" }
+"frontend:check" = { cmd = "python scripts/check_frontend.py", help = "Check browser JavaScript syntax" }
+
+[tool.poe.groups.tests]
+heading = "Tests"
+
+[tool.poe.groups.tests.tasks]
+test = { cmd = "pytest", help = "Run all available tests and report skips" }
+"test:unit" = { cmd = "pytest -m 'not embeddings and not lean'", help = "Run without model downloads or Lean" }
+"test:embeddings" = { cmd = "pytest -m embeddings", help = "Run embedding integration tests (downloads model on first use)" }
+"test:lean" = { cmd = "pytest -m lean", deps = ["lean:check"], help = "Require the pinned Lean project and run compiler integrations" }
+"test:coverage" = { cmd = "pytest --cov --cov-report=term-missing --cov-report=html", help = "Measure test coverage" }
+
+[tool.poe.groups.dependencies]
+heading = "Dependencies"
+
+[tool.poe.groups.dependencies.tasks]
+"deps:sync" = { cmd = "uv sync --locked", help = "Install the locked runtime and development tools" }
+"deps:outdated" = { cmd = "uv tree --outdated", help = "Show locked dependencies with newer available releases" }
+"deps:audit" = { cmd = "pip-audit --skip-editable", help = "Check installed dependencies for known vulnerabilities" }
+
+[tool.poe.groups.dependencies.tasks."deps:update"]
+help = "Refresh the lockfile to compatible releases and sync the environment"
+sequence = [{ cmd = "uv lock --upgrade" }, "deps:sync"]
+
+[tool.poe.groups.lean]
+heading = "Lean and Mathlib"
+
+[tool.poe.groups.lean.tasks]
+"lean:setup" = { cmd = "python scripts/lean_project.py setup", help = "Install the pinned Lean/Mathlib project and precompiled cache" }
+"lean:check" = { cmd = "python scripts/lean_project.py check", help = "Verify Lean/Mathlib pins and compile the smoke proofs" }
+
+[tool.poe.groups.packaging]
+heading = "Packaging"
+
+[tool.poe.groups.packaging.tasks]
+build = { cmd = "uv build", help = "Build source and wheel distributions" }
+"package:check" = { cmd = "python scripts/check_package.py", help = "Build and smoke-test an isolated wheel; add --lean for real Lean skills" }
+
+[tool.poe.groups.debug]
+heading = "Diagnostics"
+
+[tool.poe.groups.debug.tasks]
+"debug:candidates" = { cmd = "python scripts/dump_seed_candidates.py", help = "Inspect a seed: debug:candidates SEED_ID [--database PATH]" }

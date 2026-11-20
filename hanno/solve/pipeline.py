@@ -14,17 +14,18 @@ existentials, no backwards relations) automatically. What's new here is the
 entry point: the claim is fixed by the caller and never regenerated or
 reformulated by the model at any stage.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 
 from hanno.excavator.client import ModelClient
-from hanno.ledger.models import Candidate, Discovery, LeanVerification, ToolInvocation
-from hanno.ledger.repository import Ledger
 from hanno.lean.autoformalize import autoformalize_with_retry
 from hanno.lean.checker import classify_result
 from hanno.lean.prove import prove_with_retry
+from hanno.ledger.models import Candidate, Discovery, LeanVerification, ToolInvocation
+from hanno.ledger.repository import Ledger
 from hanno.skills.registry import SkillDefinition
 from hanno.skills.runner import format_for_model, run_skill
 from hanno.verification.counterexample import search_for_counterexample
@@ -39,7 +40,9 @@ SOLVE_PROMPT_VARIANT = "solve_mode_direct"
 class SolveResult:
     candidate_id: str
     triviality_lean_code: str | None
-    triviality_result: str | None  # classify_result(...): None means "survived" (compiles, non-trivial)
+    triviality_result: (
+        str | None
+    )  # classify_result(...): None means "survived" (compiles, non-trivial)
     refuted: bool
     counterexample_output: str | None
     proved: bool
@@ -90,11 +93,19 @@ async def solve_claim(
     per Phase 6's per-role routing); formalize and counterexample search
     always use the main `client`."""
     candidate = Candidate(
-        seed_id=seed_id, domain="mathematics", temperature=0.0,
-        prompt_variant=SOLVE_PROMPT_VARIANT, model=model_name,
-        prompt_text=claim, raw_text=claim, parse_status="ok",
-        core_claim=claim, formal_statement=claim, duplicate_status="NOVEL",
-        exploration_signal="continue", claim_type="structural",
+        seed_id=seed_id,
+        domain="mathematics",
+        temperature=0.0,
+        prompt_variant=SOLVE_PROMPT_VARIANT,
+        model=model_name,
+        prompt_text=claim,
+        raw_text=claim,
+        parse_status="ok",
+        core_claim=claim,
+        formal_statement=claim,
+        duplicate_status="NOVEL",
+        exploration_signal="continue",
+        claim_type="structural",
     )
     ledger.insert_candidate(candidate)
     candidate_dict = {"core_claim": claim, "formal_statement": claim}
@@ -110,97 +121,151 @@ async def solve_claim(
             return f"error: unknown tool {name!r}"
         input_text = str((tool_input or {}).get("input", ""))
         res = run_skill(skill, input_text)
-        grounding_invocations.append(ToolInvocation(
-            candidate_id=candidate.id, skill_name=skill.name, input_text=input_text,
-            stdout=res.stdout, stderr=res.stderr, exit_code=res.exit_code,
-            duration_ms=res.duration_ms, timed_out=res.timed_out,
-        ))
+        grounding_invocations.append(
+            ToolInvocation(
+                candidate_id=candidate.id,
+                skill_name=skill.name,
+                input_text=input_text,
+                stdout=res.stdout,
+                stderr=res.stderr,
+                exit_code=res.exit_code,
+                duration_ms=res.duration_ms,
+                timed_out=res.timed_out,
+            )
+        )
         return format_for_model(res)
 
     grounding_executor = grounding_tool_executor if grounding_skills else None
 
     outcome = await autoformalize_with_retry(
-        candidate_dict, client, project_dir, lean_timeout_s, max_translation_attempts,
-        tools=grounding_tools, tool_executor=grounding_executor,
+        candidate_dict,
+        client,
+        project_dir,
+        lean_timeout_s,
+        max_translation_attempts,
+        tools=grounding_tools,
+        tool_executor=grounding_executor,
     )
     for inv in grounding_invocations:
         ledger.insert_tool_invocation(inv)
     grounding_invocations.clear()
     label = classify_result(outcome.lean_code, outcome.check)
-    ledger.insert_lean_verification(LeanVerification(
-        candidate_id=candidate.id,
-        lean_code=outcome.lean_code,
-        translation_attempt_number=outcome.attempts,
-        lean_stdout=outcome.check.stdout if outcome.check else None,
-        lean_stderr=outcome.check.stderr if outcome.check else None,
-        result=label,
-        execution_time_ms=outcome.check.duration_ms if outcome.check else None,
-    ))
+    ledger.insert_lean_verification(
+        LeanVerification(
+            candidate_id=candidate.id,
+            lean_code=outcome.lean_code,
+            translation_attempt_number=outcome.attempts,
+            lean_stdout=outcome.check.stdout if outcome.check else None,
+            lean_stderr=outcome.check.stderr if outcome.check else None,
+            result=label,
+            execution_time_ms=outcome.check.duration_ms if outcome.check else None,
+        )
+    )
 
     if label is not None:
         # UNTRANSLATABLE / MALFORMED / TIMEOUT / KNOWN -- did not survive
         # the triviality filter, so there is nothing left to prove.
         stage = "trivial" if label == "KNOWN" else label.lower()
         return SolveResult(
-            candidate_id=candidate.id, triviality_lean_code=outcome.lean_code,
-            triviality_result=label, refuted=False, counterexample_output=None,
-            proved=False, proof_code=None, discovery_id=None, stage_reached=stage,
-            input_tokens=outcome.input_tokens, output_tokens=outcome.output_tokens,
+            candidate_id=candidate.id,
+            triviality_lean_code=outcome.lean_code,
+            triviality_result=label,
+            refuted=False,
+            counterexample_output=None,
+            proved=False,
+            proof_code=None,
+            discovery_id=None,
+            stage_reached=stage,
+            input_tokens=outcome.input_tokens,
+            output_tokens=outcome.output_tokens,
         )
 
     # Survived the triviality filter -- record it as a Discovery, same as
     # explore mode's _check_promising, so `hanno discoveries list` and the
     # mindmap render a solve-mode survivor identically to an explore-mode one.
     discovery = Discovery(
-        candidate_id=candidate.id, seed_id=seed_id, domain="mathematics",
-        statement=claim, formal_statement=outcome.lean_code,
-        verification_result="SURVIVED", lean_verified=True, human_reviewed=False,
+        candidate_id=candidate.id,
+        seed_id=seed_id,
+        domain="mathematics",
+        statement=claim,
+        formal_statement=outcome.lean_code,
+        verification_result="SURVIVED",
+        lean_verified=True,
+        human_reviewed=False,
     )
     ledger.insert_discovery(discovery)
 
     total_input = outcome.input_tokens
     total_output = outcome.output_tokens
+    assert outcome.lean_code is not None  # a survivor has a compiled statement
 
     if run_code_skill is not None:
         ce = await search_for_counterexample(claim, outcome.lean_code, client, run_code_skill)
         total_input += ce.input_tokens
         total_output += ce.output_tokens
-        ledger.insert_tool_invocation(ToolInvocation(
-            candidate_id=candidate.id, skill_name=run_code_skill.name,
-            input_text=ce.program, stdout=ce.skill_result.stdout, stderr=ce.skill_result.stderr,
-            exit_code=ce.skill_result.exit_code, duration_ms=ce.skill_result.duration_ms,
-            timed_out=ce.skill_result.timed_out,
-        ))
+        ledger.insert_tool_invocation(
+            ToolInvocation(
+                candidate_id=candidate.id,
+                skill_name=run_code_skill.name,
+                input_text=ce.program,
+                stdout=ce.skill_result.stdout,
+                stderr=ce.skill_result.stderr,
+                exit_code=ce.skill_result.exit_code,
+                duration_ms=ce.skill_result.duration_ms,
+                timed_out=ce.skill_result.timed_out,
+                phase="counterexample",
+            )
+        )
         if ce.refuted:
             return SolveResult(
-                candidate_id=candidate.id, triviality_lean_code=outcome.lean_code,
-                triviality_result=label, refuted=True, counterexample_output=ce.skill_result.stdout,
-                proved=False, proof_code=None, discovery_id=discovery.id, stage_reached="refuted",
-                input_tokens=total_input, output_tokens=total_output,
+                candidate_id=candidate.id,
+                triviality_lean_code=outcome.lean_code,
+                triviality_result=label,
+                refuted=True,
+                counterexample_output=ce.skill_result.stdout,
+                proved=False,
+                proof_code=None,
+                discovery_id=discovery.id,
+                stage_reached="refuted",
+                input_tokens=total_input,
+                output_tokens=total_output,
             )
 
     proof = await prove_with_retry(
-        outcome.lean_code, prover_client or client, project_dir, lean_timeout_s, max_proof_attempts,
-        tools=grounding_tools, tool_executor=grounding_executor,
+        outcome.lean_code,
+        prover_client or client,
+        project_dir,
+        lean_timeout_s,
+        max_proof_attempts,
+        tools=grounding_tools,
+        tool_executor=grounding_executor,
     )
     for inv in grounding_invocations:
         ledger.insert_tool_invocation(inv)
     total_input += proof.input_tokens
     total_output += proof.output_tokens
-    ledger.insert_lean_verification(LeanVerification(
-        candidate_id=candidate.id,
-        lean_code=proof.proof_code,
-        translation_attempt_number=proof.attempts,
-        lean_stdout=proof.check.stdout if proof.check else None,
-        lean_stderr=proof.check.stderr if proof.check else None,
-        result="VERIFIED" if proof.proved else None,
-        execution_time_ms=proof.check.duration_ms if proof.check else None,
-    ))
+    ledger.insert_lean_verification(
+        LeanVerification(
+            candidate_id=candidate.id,
+            lean_code=proof.proof_code,
+            translation_attempt_number=proof.attempts,
+            lean_stdout=proof.check.stdout if proof.check else None,
+            lean_stderr=proof.check.stderr if proof.check else None,
+            result="VERIFIED" if proof.proved else None,
+            execution_time_ms=proof.check.duration_ms if proof.check else None,
+        )
+    )
 
     return SolveResult(
-        candidate_id=candidate.id, triviality_lean_code=outcome.lean_code,
-        triviality_result=label, refuted=False, counterexample_output=None,
-        proved=proof.proved, proof_code=proof.proof_code, discovery_id=discovery.id,
+        candidate_id=candidate.id,
+        triviality_lean_code=outcome.lean_code,
+        triviality_result=label,
+        refuted=False,
+        counterexample_output=None,
+        proved=proof.proved,
+        proof_code=proof.proof_code,
+        discovery_id=discovery.id,
         stage_reached="proved" if proof.proved else "unresolved",
-        input_tokens=total_input, output_tokens=total_output,
+        input_tokens=total_input,
+        output_tokens=total_output,
     )

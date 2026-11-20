@@ -4,13 +4,22 @@ Five universal variants + three mathematics-specific variants, per
 General-spec.txt Section 5. Science/philosophy-specific variants are
 added in Steps 9-10.
 """
+
 from __future__ import annotations
 
 REQUIRED_JSON_FIELDS = [
-    "domain", "core_claim", "formal_statement", "intuition",
-    "connections", "self_assessed_novelty", "identified_weaknesses",
-    "exploration_signal", "suggested_seeds",
-    "self_rated_novelty", "self_rated_rigor", "claim_type",
+    "domain",
+    "core_claim",
+    "formal_statement",
+    "intuition",
+    "connections",
+    "self_assessed_novelty",
+    "identified_weaknesses",
+    "exploration_signal",
+    "suggested_seeds",
+    "self_rated_novelty",
+    "self_rated_rigor",
+    "claim_type",
 ]
 
 _NOVELTY_AND_EXPLORATION_INSTRUCTIONS = """
@@ -117,7 +126,6 @@ and formal correctness over creativity.
 
 {_OUTPUT_FORMAT_INSTRUCTIONS}
 """.strip(),
-
     "framework_proposal": f"""
 You are exploring the space of mathematical ideas. Propose a new conceptual
 framework, definition, or structural approach that generalizes or unifies
@@ -125,7 +133,6 @@ existing mathematical ideas. Prioritize generativity and scope.
 
 {_OUTPUT_FORMAT_INSTRUCTIONS}
 """.strip(),
-
     "connection_discovery": f"""
 You are exploring the space of mathematical ideas. Identify a non-obvious
 structural connection between two areas of mathematics (or between
@@ -133,7 +140,6 @@ mathematics and another domain). Prioritize bridging and synthesis.
 
 {_OUTPUT_FORMAT_INSTRUCTIONS}
 """.strip(),
-
     "adversarial_insight": f"""
 You are exploring the space of mathematical ideas. Identify something
 surprising, counterintuitive, or contrary to common mathematical
@@ -142,7 +148,6 @@ existing positions or intuitions.
 
 {_OUTPUT_FORMAT_INSTRUCTIONS}
 """.strip(),
-
     "open_problem_framing": f"""
 You are exploring the space of mathematical ideas. Identify and precisely
 formulate an open question or problem that is not currently well-posed in
@@ -161,7 +166,6 @@ the approach.
 
 {_OUTPUT_FORMAT_INSTRUCTIONS}
 """.strip(),
-
     "counterexample_construction": f"""
 You are exploring the space of mathematical ideas. Propose a candidate
 counterexample to a known conjecture. State the conjecture, the proposed
@@ -169,7 +173,6 @@ counterexample construction, and why it might work.
 
 {_OUTPUT_FORMAT_INSTRUCTIONS}
 """.strip(),
-
     "generalization": f"""
 You are exploring the space of mathematical ideas. Propose a formal
 generalization of a known theorem — a version that relaxes its
@@ -213,8 +216,10 @@ STEERING_HINTS: list[str] = [
 
 
 def build_prompt(
-    seed_text: str, variant: str,
-    already_explored: list[str] | None = None, steering_hint: str | None = None,
+    seed_text: str,
+    variant: str,
+    already_explored: list[str] | None = None,
+    steering_hint: str | None = None,
     available_tools: list[tuple[str, str]] | None = None,
 ) -> str:
     if variant not in ALL_VARIANTS:

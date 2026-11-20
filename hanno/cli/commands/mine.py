@@ -1,18 +1,18 @@
 """`hanno mine` — run an excavation cycle against a seed (Step 3, math only)."""
+
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 import typer
 
-from hanno.cli.context import build_context
+from hanno.cli.context import build_context, run_async
 from hanno.excavator.client_factory import build_client
-from hanno.excavator.pipeline import ExcavatorPipeline
+from hanno.excavator.pipeline import CycleResult, ExcavatorPipeline, IterativeMiningResult
 from hanno.ui.secrets import load_api_key
 
 
-def _print_cycle_summary(result) -> None:
+def _print_cycle_summary(result: CycleResult) -> None:
     typer.echo(
         f"cycle complete: requested={result.candidates_requested} "
         f"ok={result.candidates_parsed_ok} failed={result.candidates_failed} "
@@ -37,7 +37,7 @@ def _print_cycle_summary(result) -> None:
         typer.secho(f"RESEED RECOMMENDED: {result.reseed_reason}", fg=typer.colors.YELLOW)
 
 
-def _print_iterative_summary(result) -> None:
+def _print_iterative_summary(result: IterativeMiningResult) -> None:
     if result.resumed_from_iteration:
         typer.secho(
             f"resuming from previous run(s): {result.resumed_from_iteration} iteration(s) "
@@ -61,7 +61,9 @@ def _print_iterative_summary(result) -> None:
             typer.secho(f"  -> stopped early: {summary.stop_reason}", fg=typer.colors.YELLOW)
         elif summary.beam_after:
             scores = ", ".join(f"{t.best_path_score:.2f}" for t in summary.beam_after)
-            typer.echo(f"  -> {len(summary.beam_after)} candidate(s) carried forward (scores: {scores})")
+            typer.echo(
+                f"  -> {len(summary.beam_after)} candidate(s) carried forward (scores: {scores})"
+            )
 
     typer.echo(
         f"\nTOTAL: candidates={result.total_candidates_parsed_ok} cost=${result.total_cost_usd:.4f} "
@@ -69,7 +71,11 @@ def _print_iterative_summary(result) -> None:
     )
 
     if result.promising_found:
-        typer.secho(f"\nPROMISING CANDIDATE FOUND: {result.promising_reason}", fg=typer.colors.GREEN, bold=True)
+        typer.secho(
+            f"\nPROMISING CANDIDATE FOUND: {result.promising_reason}",
+            fg=typer.colors.GREEN,
+            bold=True,
+        )
         typer.secho(
             f"Independently cleared the Lean triviality filter — mining stopped early. "
             f"Recorded as a discovery for human review. Full detail: "
@@ -77,7 +83,9 @@ def _print_iterative_summary(result) -> None:
             fg=typer.colors.GREEN,
         )
     elif result.strong_path_found:
-        typer.secho(f"\nSTRONG PATH FOUND: {result.strong_path_reason}", fg=typer.colors.GREEN, bold=True)
+        typer.secho(
+            f"\nSTRONG PATH FOUND: {result.strong_path_reason}", fg=typer.colors.GREEN, bold=True
+        )
         typer.secho(
             f"HUMAN REVIEW RECOMMENDED — full detail: hanno trace <seed_id> --lineage {result.best_lineage[-1]}",
             fg=typer.colors.GREEN,
@@ -91,32 +99,38 @@ def _print_iterative_summary(result) -> None:
 
 def mine(
     seed: str = typer.Option(..., "--seed", help="Seed ID to mine."),
-    candidates: int = typer.Option(50, "--candidates", help="Number of candidates to generate per iteration."),
+    candidates: int = typer.Option(
+        50, "--candidates", help="Number of candidates to generate per iteration."
+    ),
     depth: int = typer.Option(
-        1, "--depth",
+        1,
+        "--depth",
         help="Iterative mining depth. 1 (default) = a single ordinary cycle, unchanged behavior. "
-             ">1 refines the most promising candidate(s) from each iteration instead of re-mining "
-             "the seed from scratch -- cost multiplies roughly by --top-k per additional iteration.",
+        ">1 refines the most promising candidate(s) from each iteration instead of re-mining "
+        "the seed from scratch -- cost multiplies roughly by --top-k per additional iteration.",
     ),
     top_k: int = typer.Option(
-        None, "--top-k",
+        None,
+        "--top-k",
         help="Beam width for --depth > 1: how many top candidates carry forward each iteration "
-             "(default from config excavator.iteration_top_k).",
+        "(default from config excavator.iteration_top_k).",
     ),
     fresh: bool = typer.Option(
-        False, "--fresh",
+        False,
+        "--fresh",
         help="For --depth > 1: restart the beam search from the original seed at iteration 1 "
-             "instead of the default behavior of resuming from the previous run's best "
-             "candidates and iteration count (e.g. depth 3 then depth 2 = iterations 1-5).",
+        "instead of the default behavior of resuming from the previous run's best "
+        "candidates and iteration count (e.g. depth 3 then depth 2 = iterations 1-5).",
     ),
     until_promising: bool = typer.Option(
-        False, "--until-promising",
+        False,
+        "--until-promising",
         help="Keep iterating (up to --depth as a safety ceiling, not a fixed target) until a "
-             "candidate independently clears the Lean triviality filter (compiles, isn't "
-             "trivially closed by exact?/simp), then stop and record it as a discovery for "
-             "human review. Requires the local Lean toolchain (see hanno lean-pilot).",
+        "candidate independently clears the Lean triviality filter (compiles, isn't "
+        "trivially closed by exact?/simp), then stop and record it as a discovery for "
+        "human review. Requires the local Lean toolchain (see hanno lean-pilot).",
     ),
-):
+) -> None:
     ctx = build_context()
     seed_row = ctx.ledger.get_seed(seed)
     if seed_row is None:
@@ -140,29 +154,40 @@ def mine(
         )
         raise typer.Exit(code=1)
 
-    client = build_client(ctx.config, api_key=load_api_key(ctx.config.excavator.provider))
-    pipeline = ExcavatorPipeline(ctx.ledger, ctx.config, ctx.fingerprint_engine, client=client, skills=ctx.skills)
+    client = build_client(
+        ctx.config, api_key=load_api_key(ctx.config.excavator.provider), ledger=ctx.ledger
+    )
+    pipeline = ExcavatorPipeline(
+        ctx.ledger, ctx.config, ctx.fingerprint_engine, client=client, skills=ctx.skills
+    )
     if ctx.skills:
         typer.echo(f"skills active: {', '.join(s.name for s in ctx.skills)}")
 
     if depth == 1 and not until_promising:
-        async def _run_single():
+
+        async def _run_single() -> CycleResult:
             try:
                 return await pipeline.run_cycle(seed, seed_row["text"], candidates)
             finally:
                 await pipeline.close()
 
-        result = asyncio.run(_run_single())
+        result = run_async(_run_single())
         _print_cycle_summary(result)
     else:
-        async def _run_iterative():
+
+        async def _run_iterative() -> IterativeMiningResult:
             try:
                 return await pipeline.run_iterative_mining(
-                    seed, seed_row["text"], candidates, depth, top_k=top_k, resume=not fresh,
+                    seed,
+                    seed_row["text"],
+                    candidates,
+                    depth,
+                    top_k=top_k,
+                    resume=not fresh,
                     until_promising=until_promising,
                 )
             finally:
                 await pipeline.close()
 
-        result = asyncio.run(_run_iterative())
+        result = run_async(_run_iterative())
         _print_iterative_summary(result)

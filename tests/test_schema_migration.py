@@ -4,6 +4,7 @@ existing table) must self-heal on the next init_schema() call, WITHOUT
 losing any existing rows. CREATE TABLE IF NOT EXISTS alone can't do this --
 it only handles brand-new tables, never new columns on an existing one.
 """
+
 import sqlite3
 
 from hanno.ledger import db as db_module
@@ -64,11 +65,23 @@ def test_missing_candidate_columns_are_added_without_losing_data(tmp_path):
     # And the columns are now genuinely usable -- an insert exercising them
     # via the real repository method must succeed.
     from hanno.ledger.models import Candidate
-    ledger.insert_candidate(Candidate(
-        seed_id="s1", domain="mathematics", temperature=0.5, prompt_variant="direct_conjecture",
-        model="test-model", prompt_text="p", raw_text="r", parse_status="ok",
-        reasoning_effort="standard", self_rated_novelty=0.5, self_rated_rigor=0.5, path_score=0.5,
-    ))
+
+    ledger.insert_candidate(
+        Candidate(
+            seed_id="s1",
+            domain="mathematics",
+            temperature=0.5,
+            prompt_variant="direct_conjecture",
+            model="test-model",
+            prompt_text="p",
+            raw_text="r",
+            parse_status="ok",
+            reasoning_effort="standard",
+            self_rated_novelty=0.5,
+            self_rated_rigor=0.5,
+            path_score=0.5,
+        )
+    )
     ledger.close()
 
 
@@ -87,7 +100,10 @@ def test_migrate_columns_skips_tables_that_dont_exist_yet(tmp_path):
     db_path = tmp_path / "empty.db"
     conn = db_module.connect(db_path)
     db_module.init_schema(conn)
-    assert conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='candidates'"
-    ).fetchone() is not None
+    assert (
+        conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='candidates'"
+        ).fetchone()
+        is not None
+    )
     conn.close()

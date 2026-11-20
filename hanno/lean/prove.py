@@ -13,13 +13,15 @@ max_attempts without one is an honest "couldn't prove it automatically", not
 a rejection -- most hard, genuinely novel conjectures are expected to land
 here rather than get a machine proof.
 """
+
 from __future__ import annotations
 
 import asyncio
 import re
+import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from hanno.excavator.client import ModelClient
 from hanno.lean.checker import (
@@ -66,7 +68,8 @@ simp | positivity`, so whichever one actually applies is used automatically, or 
 tool is available, call it on the exact standalone sub-goal BEFORE committing to a tactic in your proof --
 it verifies via a real compile which tactic (if any) closes it, rather than you guessing."""
 
-PROVE_PROMPT = """You are proving a Lean 4 theorem against Mathlib. Produce a COMPLETE proof -- no `sorry` anywhere in your answer.
+PROVE_PROMPT = (
+    """You are proving a Lean 4 theorem against Mathlib. Produce a COMPLETE proof -- no `sorry` anywhere in your answer.
 
 Statement:
 ```lean
@@ -77,11 +80,16 @@ Write the complete theorem with a real proof, replacing the `sorry` body with ac
 
 If the proof naturally splits into independent parts (e.g. a divisibility claim that decomposes by prime factor, or a case split), state each part as its own `have partName : <statement> := by sorry` line -- one statement per line, ending in exactly `:= by sorry` -- then combine them at the end (e.g. `exact ...`). Each part gets solved independently and is more likely to succeed than one giant combined proof attempt. Only do this when the proof genuinely decomposes; a single short proof should stay a single proof.
 
-""" + KNOWN_FORMALIZATION_GOTCHAS + """
+"""
+    + KNOWN_FORMALIZATION_GOTCHAS
+    + """
 
-""" + TACTIC_SELECTION_GUIDANCE + """
+"""
+    + TACTIC_SELECTION_GUIDANCE
+    + """
 
 Output ONLY a single ```lean fenced code block (or the literal word CANNOT_PROVE) -- no prose before or after."""
+)
 
 RETRY_AFTER_DECLINE_PROMPT = """You previously declined to attempt a proof of this Lean 4 theorem, responding CANNOT_PROVE:
 
@@ -94,7 +102,8 @@ Please reconsider and make a genuine attempt. Try standard approaches for this k
 
 Output ONLY a single ```lean fenced code block (or the literal word CANNOT_PROVE) -- no prose before or after."""
 
-RETRY_AFTER_ERROR_PROMPT = """Your previous Lean 4 proof attempt did not compile.
+RETRY_AFTER_ERROR_PROMPT = (
+    """Your previous Lean 4 proof attempt did not compile.
 
 Statement:
 ```lean
@@ -111,11 +120,16 @@ Lean's error output:
 
 Fix the proof and output a corrected, COMPLETE Lean 4 proof (no `sorry`). If you now believe this cannot be proven, respond with exactly CANNOT_PROVE and nothing else.
 
-""" + KNOWN_FORMALIZATION_GOTCHAS + """
+"""
+    + KNOWN_FORMALIZATION_GOTCHAS
+    + """
 
-""" + TACTIC_SELECTION_GUIDANCE + """
+"""
+    + TACTIC_SELECTION_GUIDANCE
+    + """
 
 Output ONLY a single ```lean fenced code block (or the literal word CANNOT_PROVE) -- no prose before or after."""
+)
 
 RETRY_AFTER_INCOMPLETE_PROMPT = """Your previous Lean 4 proof attempt compiled, but still contains `sorry` -- it is not a complete proof.
 
@@ -153,32 +167,56 @@ class ProveAttempt:
 def _extract(text: str, input_tokens: int = 0, output_tokens: int = 0) -> ProveAttempt:
     text = text.strip()
     if "CANNOT_PROVE" in text:
-        return ProveAttempt(proof_code=None, raw_response=text, input_tokens=input_tokens, output_tokens=output_tokens)
+        return ProveAttempt(
+            proof_code=None,
+            raw_response=text,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
     match = _CODE_BLOCK_RE.search(text)
     if not match:
-        return ProveAttempt(proof_code=None, raw_response=text, input_tokens=input_tokens, output_tokens=output_tokens)
+        return ProveAttempt(
+            proof_code=None,
+            raw_response=text,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
     code = ensure_mathlib_import(fix_deprecated_bigop_notation(match.group(1).strip()))
-    return ProveAttempt(proof_code=code, raw_response=text, input_tokens=input_tokens, output_tokens=output_tokens)
+    return ProveAttempt(
+        proof_code=code, raw_response=text, input_tokens=input_tokens, output_tokens=output_tokens
+    )
 
 
 async def _first_attempt(
-    lean_code: str, client: ModelClient,
-    tools: list[SkillDefinition] | None = None, tool_executor: Callable[[str, dict], str] | None = None,
+    lean_code: str,
+    client: ModelClient,
+    tools: list[SkillDefinition] | None = None,
+    tool_executor: Callable[[str, dict], str] | None = None,
 ) -> ProveAttempt:
     prompt = PROVE_PROMPT.format(lean_code=lean_code)
     result = await client.generate(
-        prompt, temperature=0.2, max_tokens=3000, tools=tools, tool_executor=tool_executor,
+        prompt,
+        temperature=0.2,
+        max_tokens=3000,
+        tools=tools,
+        tool_executor=tool_executor,
     )
     return _extract(result.text, result.input_tokens, result.output_tokens)
 
 
 async def _retry_after_decline(
-    lean_code: str, client: ModelClient,
-    tools: list[SkillDefinition] | None = None, tool_executor: Callable[[str, dict], str] | None = None,
+    lean_code: str,
+    client: ModelClient,
+    tools: list[SkillDefinition] | None = None,
+    tool_executor: Callable[[str, dict], str] | None = None,
 ) -> ProveAttempt:
     prompt = RETRY_AFTER_DECLINE_PROMPT.format(lean_code=lean_code)
     result = await client.generate(
-        prompt, temperature=0.2, max_tokens=3000, tools=tools, tool_executor=tool_executor,
+        prompt,
+        temperature=0.2,
+        max_tokens=3000,
+        tools=tools,
+        tool_executor=tool_executor,
     )
     return _extract(result.text, result.input_tokens, result.output_tokens)
 
@@ -192,15 +230,23 @@ def _looks_like_cast_subtraction_defeq_error(error_output: str) -> bool:
     hint, which is harmless; the point is to surface KNOWN_FORMALIZATION_GOTCHAS'
     advice exactly when its symptoms (a defeq failure involving a cast and a
     subtraction) are actually present, not on every retry regardless."""
-    return "not definitionally equal" in error_output and "↑" in error_output and "-" in error_output
+    return (
+        "not definitionally equal" in error_output and "↑" in error_output and "-" in error_output
+    )
 
 
 async def _retry_after_error(
-    lean_code: str, client: ModelClient, previous_code: str, error_output: str,
-    tools: list[SkillDefinition] | None = None, tool_executor: Callable[[str, dict], str] | None = None,
+    lean_code: str,
+    client: ModelClient,
+    previous_code: str,
+    error_output: str,
+    tools: list[SkillDefinition] | None = None,
+    tool_executor: Callable[[str, dict], str] | None = None,
 ) -> ProveAttempt:
     prompt = RETRY_AFTER_ERROR_PROMPT.format(
-        lean_code=lean_code, previous_code=previous_code, error_output=error_output.strip()[:2000],
+        lean_code=lean_code,
+        previous_code=previous_code,
+        error_output=error_output.strip()[:2000],
     )
     if _looks_like_cast_subtraction_defeq_error(error_output):
         prompt += (
@@ -210,18 +256,29 @@ async def _retry_after_error(
             "involved) instead of `n ∣ (a - b)`, or use `Nat.cast_sub` after first proving `b ≤ a`."
         )
     result = await client.generate(
-        prompt, temperature=0.2, max_tokens=3000, tools=tools, tool_executor=tool_executor,
+        prompt,
+        temperature=0.2,
+        max_tokens=3000,
+        tools=tools,
+        tool_executor=tool_executor,
     )
     return _extract(result.text, result.input_tokens, result.output_tokens)
 
 
 async def _retry_after_incomplete(
-    lean_code: str, client: ModelClient, previous_code: str,
-    tools: list[SkillDefinition] | None = None, tool_executor: Callable[[str, dict], str] | None = None,
+    lean_code: str,
+    client: ModelClient,
+    previous_code: str,
+    tools: list[SkillDefinition] | None = None,
+    tool_executor: Callable[[str, dict], str] | None = None,
 ) -> ProveAttempt:
     prompt = RETRY_AFTER_INCOMPLETE_PROMPT.format(lean_code=lean_code, previous_code=previous_code)
     result = await client.generate(
-        prompt, temperature=0.2, max_tokens=3000, tools=tools, tool_executor=tool_executor,
+        prompt,
+        temperature=0.2,
+        max_tokens=3000,
+        tools=tools,
+        tool_executor=tool_executor,
     )
     return _extract(result.text, result.input_tokens, result.output_tokens)
 
@@ -237,7 +294,104 @@ class ProofResult:
 
 
 def _is_complete_proof(proof_code: str, check: CheckResult) -> bool:
-    return check.compiles and "sorry" not in proof_code
+    return check.compiles and not {"sorry", "admit"}.intersection(_lean_tokens(proof_code))
+
+
+def _lean_tokens(code: str) -> list[str]:
+    """Compare Lean headers without changing strings, identifiers, or nested comments."""
+    cleaned: list[str] = []
+    i = 0
+    depth = 0
+    quoted = False
+    while i < len(code):
+        pair = code[i : i + 2]
+        if depth:
+            if pair == "/-":
+                depth += 1
+                i += 2
+            elif pair == "-/":
+                depth -= 1
+                i += 2
+            else:
+                i += 1
+        elif quoted:
+            cleaned.append(code[i])
+            if code[i] == "\\" and i + 1 < len(code):
+                i += 1
+                cleaned.append(code[i])
+            elif code[i] == '"':
+                quoted = False
+            i += 1
+        elif pair == "/-":
+            cleaned.append(" ")
+            depth = 1
+            i += 2
+        elif pair == "--":
+            end = code.find("\n", i)
+            i = len(code) if end == -1 else end
+        else:
+            quoted = code[i] == '"'
+            cleaned.append(code[i])
+            i += 1
+    return re.findall(r'"(?:\\.|[^"\\])*"|«[^»]*»|[^\W\d]\w*|\d+|\S', "".join(cleaned))
+
+
+_DECLARATION_RE = re.compile(r"\b(?:theorem\s+(?P<name>[^\s(:{]+)|example\b)")
+
+
+def _proof_header(code: str) -> tuple[list[str], str | None] | None:
+    declaration = _DECLARATION_RE.search(code)
+    if declaration is None:
+        return None
+    split = _split_at_top_level(code[declaration.end() :], ":=")
+    if split is None:
+        return None
+    prefix = code[: declaration.start()] + "theorem __target__ " + split[0]
+    return _lean_tokens(ensure_mathlib_import(prefix)), declaration.group("name")
+
+
+def _check_target_proof(
+    proof_code: str,
+    target_code: str,
+    project_dir: Path,
+    timeout_s: int,
+) -> CheckResult:
+    target = _proof_header(target_code)
+    proposed = _proof_header(proof_code)
+    if target is None or proposed is None or target[0] != proposed[0]:
+        return CheckResult(
+            False,
+            None,
+            "Proof changed the target statement, hypotheses, or imports. Keep the original header.",
+            "",
+            0,
+        )
+    if {"sorry", "admit"}.intersection(_lean_tokens(proof_code)):
+        # A type-correct sketch may still be decomposed; _is_complete_proof
+        # rejects it until all stubs are replaced and the axiom audit passes.
+        return check_proof(proof_code, project_dir, timeout_s)
+    audited_code = proof_code
+    name = proposed[1]
+    if name is None:
+        name = "hanno_audit_" + uuid.uuid4().hex
+        declaration = _DECLARATION_RE.search(audited_code)
+        assert declaration is not None
+        audited_code = (
+            audited_code[: declaration.start()]
+            + f"theorem {name}"
+            + audited_code[declaration.end() :]
+        )
+    # Lean checks the proof's transitive dependencies, including admissions
+    # introduced by tactics. A warning-free compile alone is insufficient.
+    audited_code += f"""
+
+run_elab do
+  let axioms ← Lean.collectAxioms `{name}
+  for axiomName in axioms do
+    unless [``propext, ``Classical.choice, ``Quot.sound].contains axiomName do
+      throwError "untrusted proof axiom: {{axiomName}}"
+"""
+    return check_proof(audited_code, project_dir, timeout_s)
 
 
 # ---------------------------------------------------------------------------
@@ -275,11 +429,11 @@ def _split_at_top_level(text: str, marker: str) -> tuple[str, str, int] | None:
             depth += 1
         elif c in closes:
             depth -= 1
-        elif depth == 0 and text[i:i + mlen] == marker:
-            if marker == ":" and text[i:i + 2] == ":=":
+        elif depth == 0 and text[i : i + mlen] == marker:
+            if marker == ":" and text[i : i + 2] == ":=":
                 i += 1
                 continue
-            return text[:i].strip(), text[i + mlen:].strip(), i
+            return text[:i].strip(), text[i + mlen :].strip(), i
         i += 1
     return None
 
@@ -291,7 +445,7 @@ def _extract_proof_body(code: str) -> str | None:
     m = _THEOREM_NAME_RE.search(code)
     if not m:
         return None
-    split = _split_at_top_level(code[m.end():], ":=")
+    split = _split_at_top_level(code[m.end() :], ":=")
     if split is None:
         return None
     _, body, _ = split
@@ -321,7 +475,7 @@ def _parse_have_sketch(code: str) -> HaveSketch | None:
     name_match = _THEOREM_NAME_RE.search(code)
     if not name_match:
         return None
-    header_split = _split_at_top_level(code[name_match.end():], ":=")
+    header_split = _split_at_top_level(code[name_match.end() :], ":=")
     if header_split is None:
         return None
     header, proof_body, assign_rel_idx = header_split
@@ -340,12 +494,12 @@ def _parse_have_sketch(code: str) -> HaveSketch | None:
     all_haves: list[tuple[str, str, tuple[int, int] | None]] = []
     last_consumed_end = None
     for hm in have_matches:
-        stmt_split = _split_at_top_level(code[hm.end():], ":=")
+        stmt_split = _split_at_top_level(code[hm.end() :], ":=")
         if stmt_split is None:
             return None
         _, _, stmt_assign_rel = stmt_split
         stmt_assign_abs = hm.end() + stmt_assign_rel + 2
-        statement = code[hm.end():stmt_assign_abs - 2].strip()
+        statement = code[hm.end() : stmt_assign_abs - 2].strip()
         stub_match = _STUB_RE.match(code, stmt_assign_abs)
         if stub_match:
             all_haves.append((hm.group(1), statement, (stub_match.start(1), stub_match.end(1))))
@@ -377,15 +531,22 @@ def _parse_have_sketch(code: str) -> HaveSketch | None:
     return HaveSketch(binders=binders, goal=goal, all_haves=all_haves, final_block=final_block)
 
 
-def _build_subgoal_theorem(name: str, binders: str, prior_haves: list[tuple[str, str]], goal_stmt: str) -> str:
+def _build_subgoal_theorem(
+    name: str, binders: str, prior_haves: list[tuple[str, str]], goal_stmt: str
+) -> str:
     hyp_parts = " ".join(f"({hname} : {hstmt})" for hname, hstmt in prior_haves)
     signature = f"{binders} {hyp_parts}".strip() if hyp_parts else binders
     return f"import Mathlib\n\ntheorem {name} {signature} : {goal_stmt} := by sorry"
 
 
 async def decompose_and_prove(
-    lean_code: str, client: ModelClient, project_dir: Path, timeout_s: int, max_subgoal_attempts: int,
-    tools: list[SkillDefinition] | None = None, tool_executor: Callable[[str, dict], str] | None = None,
+    lean_code: str,
+    client: ModelClient,
+    project_dir: Path,
+    timeout_s: int,
+    max_subgoal_attempts: int,
+    tools: list[SkillDefinition] | None = None,
+    tool_executor: Callable[[str, dict], str] | None = None,
 ) -> ProofResult:
     """`lean_code` is an attempt that ALREADY typechecks in the `have ... :=
     by sorry` sketch shape (checked by the caller before calling this).
@@ -409,21 +570,34 @@ async def decompose_and_prove(
         prior = [(n, s) for n, s, _ in sketch.all_haves[:i]]
         subgoal_code = _build_subgoal_theorem(f"sub_{hname}", sketch.binders, prior, hstmt)
         sub_result = await prove_with_retry(
-            subgoal_code, client, project_dir, timeout_s, max_subgoal_attempts,
-            tools=tools, tool_executor=tool_executor,
+            subgoal_code,
+            client,
+            project_dir,
+            timeout_s,
+            max_subgoal_attempts,
+            tools=tools,
+            tool_executor=tool_executor,
         )
         total_input += sub_result.input_tokens
         total_output += sub_result.output_tokens
         if not sub_result.proved or sub_result.proof_code is None:
             return ProofResult(
-                proved=False, proof_code=None, check=None, attempts=len(solved) + 1,
-                input_tokens=total_input, output_tokens=total_output,
+                proved=False,
+                proof_code=None,
+                check=None,
+                attempts=len(solved) + 1,
+                input_tokens=total_input,
+                output_tokens=total_output,
             )
         body = _extract_proof_body(sub_result.proof_code)
         if body is None:
             return ProofResult(
-                proved=False, proof_code=None, check=None, attempts=len(solved) + 1,
-                input_tokens=total_input, output_tokens=total_output,
+                proved=False,
+                proof_code=None,
+                check=None,
+                attempts=len(solved) + 1,
+                input_tokens=total_input,
+                output_tokens=total_output,
             )
         solved[i] = body
 
@@ -432,24 +606,41 @@ async def decompose_and_prove(
     # shift as replacements are applied.
     assembled = lean_code
     for i in sorted(solved, reverse=True):
-        stub_start, stub_end = sketch.all_haves[i][2]
+        stub = sketch.all_haves[i][2]
+        assert stub is not None
+        stub_start, stub_end = stub
         assembled = assembled[:stub_start] + solved[i] + assembled[stub_end:]
 
-    check = await asyncio.to_thread(check_proof, assembled, project_dir, timeout_s)
+    check = await asyncio.to_thread(
+        _check_target_proof, assembled, lean_code, project_dir, timeout_s
+    )
     if _is_complete_proof(assembled, check):
         return ProofResult(
-            proved=True, proof_code=assembled, check=check, attempts=len(solved),
-            input_tokens=total_input, output_tokens=total_output,
+            proved=True,
+            proof_code=assembled,
+            check=check,
+            attempts=len(solved),
+            input_tokens=total_input,
+            output_tokens=total_output,
         )
     return ProofResult(
-        proved=False, proof_code=None, check=check, attempts=len(solved),
-        input_tokens=total_input, output_tokens=total_output,
+        proved=False,
+        proof_code=None,
+        check=check,
+        attempts=len(solved),
+        input_tokens=total_input,
+        output_tokens=total_output,
     )
 
 
 async def prove_with_retry(
-    lean_code: str, client: ModelClient, project_dir: Path, timeout_s: int, max_attempts: int,
-    tools: list[SkillDefinition] | None = None, tool_executor: Callable[[str, dict], str] | None = None,
+    lean_code: str,
+    client: ModelClient,
+    project_dir: Path,
+    timeout_s: int,
+    max_attempts: int,
+    tools: list[SkillDefinition] | None = None,
+    tool_executor: Callable[[str, dict], str] | None = None,
     max_subgoal_attempts: int = 2,
 ) -> ProofResult:
     """lean_code is the ALREADY-SURVIVED statement (compiles with `by sorry`,
@@ -475,8 +666,12 @@ async def prove_with_retry(
         if attempt_result.proof_code is None:
             if attempt >= max_attempts:
                 return ProofResult(
-                    proved=False, proof_code=None, check=None, attempts=attempt,
-                    input_tokens=total_input, output_tokens=total_output,
+                    proved=False,
+                    proof_code=None,
+                    check=None,
+                    attempts=attempt,
+                    input_tokens=total_input,
+                    output_tokens=total_output,
                 )
             attempt += 1
             attempt_result = await _retry_after_decline(lean_code, client, tools, tool_executor)
@@ -486,38 +681,61 @@ async def prove_with_retry(
 
         # to_thread: check_proof blocks on a ~45-60s subprocess call, same
         # reasoning as autoformalize_with_retry.
-        check = await asyncio.to_thread(check_proof, attempt_result.proof_code, project_dir, timeout_s)
+        check = await asyncio.to_thread(
+            _check_target_proof, attempt_result.proof_code, lean_code, project_dir, timeout_s
+        )
 
         if _is_complete_proof(attempt_result.proof_code, check):
             return ProofResult(
-                proved=True, proof_code=attempt_result.proof_code, check=check, attempts=attempt,
-                input_tokens=total_input, output_tokens=total_output,
+                proved=True,
+                proof_code=attempt_result.proof_code,
+                check=check,
+                attempts=attempt,
+                input_tokens=total_input,
+                output_tokens=total_output,
             )
         if check.timed_out or attempt >= max_attempts:
             return ProofResult(
-                proved=False, proof_code=attempt_result.proof_code, check=check, attempts=attempt,
-                input_tokens=total_input, output_tokens=total_output,
+                proved=False,
+                proof_code=attempt_result.proof_code,
+                check=check,
+                attempts=attempt,
+                input_tokens=total_input,
+                output_tokens=total_output,
             )
 
         if check.compiles:
             decomp = await decompose_and_prove(
-                attempt_result.proof_code, client, project_dir, timeout_s, max_subgoal_attempts,
-                tools, tool_executor,
+                attempt_result.proof_code,
+                client,
+                project_dir,
+                timeout_s,
+                max_subgoal_attempts,
+                tools,
+                tool_executor,
             )
             total_input += decomp.input_tokens
             total_output += decomp.output_tokens
             if decomp.proved:
                 return ProofResult(
-                    proved=True, proof_code=decomp.proof_code, check=decomp.check, attempts=attempt,
-                    input_tokens=total_input, output_tokens=total_output,
+                    proved=True,
+                    proof_code=decomp.proof_code,
+                    check=decomp.check,
+                    attempts=attempt,
+                    input_tokens=total_input,
+                    output_tokens=total_output,
                 )
 
         attempt += 1
         if check.compiles:
-            attempt_result = await _retry_after_incomplete(lean_code, client, attempt_result.proof_code, tools, tool_executor)
+            attempt_result = await _retry_after_incomplete(
+                lean_code, client, attempt_result.proof_code, tools, tool_executor
+            )
             total_input += attempt_result.input_tokens
             total_output += attempt_result.output_tokens
         else:
-            attempt_result = await _retry_after_error(lean_code, client, attempt_result.proof_code, check.stdout, tools, tool_executor)
+            attempt_result = await _retry_after_error(
+                lean_code, client, attempt_result.proof_code, check.stdout, tools, tool_executor
+            )
             total_input += attempt_result.input_tokens
             total_output += attempt_result.output_tokens

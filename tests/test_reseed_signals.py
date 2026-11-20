@@ -1,6 +1,7 @@
 """Excavator exploration-signal aggregation: branch_point / dead_end signals
 from individual candidates roll up into a cycle-level reseed recommendation,
 surfaced to the human rather than acted on automatically."""
+
 import json
 
 import pytest
@@ -16,20 +17,22 @@ TEST_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 def _payload(core_claim: str, exploration_signal: str, suggested_seeds=None) -> str:
-    return json.dumps({
-        "domain": "mathematics",
-        "core_claim": core_claim,
-        "formal_statement": "forall x, P(x)",
-        "intuition": "intuition text",
-        "connections": ["algebra"],
-        "self_assessed_novelty": "medium",
-        "identified_weaknesses": "none",
-        "exploration_signal": exploration_signal,
-        "suggested_seeds": suggested_seeds or [],
-        "self_rated_novelty": 0.7,
-        "self_rated_rigor": 0.7,
-        "claim_type": "structural",
-    })
+    return json.dumps(
+        {
+            "domain": "mathematics",
+            "core_claim": core_claim,
+            "formal_statement": "forall x, P(x)",
+            "intuition": "intuition text",
+            "connections": ["algebra"],
+            "self_assessed_novelty": "medium",
+            "identified_weaknesses": "none",
+            "exploration_signal": exploration_signal,
+            "suggested_seeds": suggested_seeds or [],
+            "self_rated_novelty": 0.7,
+            "self_rated_rigor": 0.7,
+            "claim_type": "structural",
+        }
+    )
 
 
 class SequencedClaudeClient:
@@ -41,9 +44,13 @@ class SequencedClaudeClient:
         self.calls = 0
 
     async def generate(
-        self, prompt: str, temperature: float,
-        max_tokens: int | None = None, thinking_budget_tokens: int | None = None,
+        self,
+        prompt: str,
+        temperature: float,
+        max_tokens: int | None = None,
+        thinking_budget_tokens: int | None = None,
         cache_prefix: str | None = None,
+        **kwargs,
     ) -> GenerationResult:
         text = self._payloads[self.calls % len(self._payloads)]
         self.calls += 1
@@ -55,10 +62,10 @@ class SequencedClaudeClient:
 
 @pytest.fixture
 def ledger(tmp_path):
-    l = Ledger.connect(tmp_path / "test.db")
-    l.init_schema()
-    yield l
-    l.close()
+    db = Ledger.connect(tmp_path / "test.db")
+    db.init_schema()
+    yield db
+    db.close()
 
 
 @pytest.fixture
@@ -69,7 +76,11 @@ def fingerprint_engine(ledger):
 
 @pytest.fixture
 def seed(ledger):
-    s = Seed(text="a seed about additive number theory and unit fractions", domain="mathematics", type="human")
+    s = Seed(
+        text="a seed about additive number theory and unit fractions",
+        domain="mathematics",
+        type="human",
+    )
     ledger.insert_seed(s)
     return s
 
@@ -79,7 +90,11 @@ async def test_branch_point_recommends_reseed_with_suggestions(ledger, fingerpri
     payloads = [
         _payload("claim one about unit fraction decompositions", "continue"),
         _payload("claim two about unit fraction decompositions", "continue"),
-        _payload("claim three about unit fraction decompositions", "branch_point", ["explore the p-group case", "explore the infinite case"]),
+        _payload(
+            "claim three about unit fraction decompositions",
+            "branch_point",
+            ["explore the p-group case", "explore the infinite case"],
+        ),
     ]
     client = SequencedClaudeClient(payloads)
     config = HannoConfig()
@@ -92,6 +107,7 @@ async def test_branch_point_recommends_reseed_with_suggestions(ledger, fingerpri
     assert result.dead_end_count == 0
     assert result.suggested_seed_texts == ["explore the p-group case", "explore the infinite case"]
     assert result.reseed_recommended is True
+    assert result.reseed_reason is not None
     assert "branching" in result.reseed_reason
 
 
@@ -114,6 +130,7 @@ async def test_dead_end_majority_recommends_reseed(ledger, fingerprint_engine, s
     assert result.dead_end_count == 4
     assert result.branch_point_count == 0
     assert result.reseed_recommended is True
+    assert result.reseed_reason is not None
     assert "dead_end" in result.reseed_reason
 
 

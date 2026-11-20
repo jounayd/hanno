@@ -1,6 +1,7 @@
 """Discovery ledger methods -- writing/reading the previously-unused
 discoveries table, populated when run_iterative_mining(until_promising=True)
 finds a candidate that clears the Lean triviality filter."""
+
 import pytest
 
 from hanno.ledger.models import Candidate, Discovery, Seed
@@ -9,10 +10,10 @@ from hanno.ledger.repository import Ledger
 
 @pytest.fixture
 def ledger(tmp_path):
-    l = Ledger.connect(tmp_path / "test.db")
-    l.init_schema()
-    yield l
-    l.close()
+    db = Ledger.connect(tmp_path / "test.db")
+    db.init_schema()
+    yield db
+    db.close()
 
 
 @pytest.fixture
@@ -25,9 +26,17 @@ def seed(ledger):
 @pytest.fixture
 def candidate(ledger, seed):
     c = Candidate(
-        seed_id=seed.id, domain="mathematics", temperature=0.5, prompt_variant="direct_conjecture",
-        model="test-model", reasoning_effort="standard", raw_text="{}", core_claim="a claim",
-        formal_statement="for all x, x = x", parse_status="ok", prompt_text="prompt",
+        seed_id=seed.id,
+        domain="mathematics",
+        temperature=0.5,
+        prompt_variant="direct_conjecture",
+        model="test-model",
+        reasoning_effort="standard",
+        raw_text="{}",
+        core_claim="a claim",
+        formal_statement="for all x, x = x",
+        parse_status="ok",
+        prompt_text="prompt",
     )
     ledger.insert_candidate(c)
     return c
@@ -35,9 +44,14 @@ def candidate(ledger, seed):
 
 def test_insert_and_list_discovery_round_trip(ledger, seed, candidate):
     discovery = Discovery(
-        candidate_id=candidate.id, seed_id=seed.id, domain="mathematics",
-        statement=candidate.core_claim, formal_statement="theorem foo : True := by sorry",
-        verification_result="SURVIVED", lean_verified=True, human_reviewed=False,
+        candidate_id=candidate.id,
+        seed_id=seed.id,
+        domain="mathematics",
+        statement=candidate.core_claim,
+        formal_statement="theorem foo : True := by sorry",
+        verification_result="SURVIVED",
+        lean_verified=True,
+        human_reviewed=False,
     )
     ledger.insert_discovery(discovery)
 
@@ -53,7 +67,9 @@ def test_insert_and_list_discovery_round_trip(ledger, seed, candidate):
 
 
 def test_discoveries_default_unreviewed(ledger, seed, candidate):
-    ledger.insert_discovery(Discovery(candidate_id=candidate.id, seed_id=seed.id, domain="mathematics"))
+    ledger.insert_discovery(
+        Discovery(candidate_id=candidate.id, seed_id=seed.id, domain="mathematics")
+    )
 
     rows = ledger.list_discoveries()
 

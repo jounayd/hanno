@@ -3,6 +3,7 @@ autoformalize_with_retry, which only ever produces a `:= by sorry`
 placeholder -- this is the step that tries to actually prove the statement).
 Hermetic: ClaudeClient and check_proof are both faked, no real Lean
 toolchain or API key needed."""
+
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,7 +12,12 @@ import pytest
 from hanno.excavator.client import GenerationResult
 from hanno.lean import prove as prove_module
 from hanno.lean.checker import CheckResult
-from hanno.lean.prove import KNOWN_FORMALIZATION_GOTCHAS, PROVE_PROMPT, RETRY_AFTER_ERROR_PROMPT, prove_with_retry
+from hanno.lean.prove import (
+    KNOWN_FORMALIZATION_GOTCHAS,
+    PROVE_PROMPT,
+    RETRY_AFTER_ERROR_PROMPT,
+    prove_with_retry,
+)
 
 LEAN_CODE = "theorem foo : 1 + 1 = 2 := by sorry"
 
@@ -23,13 +29,21 @@ class ScriptedClaudeClient:
         self.prompts: list[str] = []
 
     async def generate(
-        self, prompt: str, temperature: float, max_tokens: int | None = None,
-        tools=None, tool_executor=None,
+        self,
+        prompt: str,
+        temperature: float,
+        max_tokens: int | None = None,
+        tools=None,
+        tool_executor=None,
+        **kwargs,
     ) -> GenerationResult:
         self.prompts.append(prompt)
         text = self._responses[self.calls]
         self.calls += 1
         return GenerationResult(text=text, input_tokens=10, output_tokens=10)
+
+    async def close(self) -> None:
+        pass
 
 
 def _compiles():
@@ -37,7 +51,9 @@ def _compiles():
 
 
 def _malformed():
-    return CheckResult(compiles=False, trivial_by=None, stdout="error: bad", stderr="", duration_ms=100)
+    return CheckResult(
+        compiles=False, trivial_by=None, stdout="error: bad", stderr="", duration_ms=100
+    )
 
 
 def _cast_subtraction_defeq_error():
@@ -52,7 +68,9 @@ def _cast_subtraction_defeq_error():
 
 
 def _timed_out():
-    return CheckResult(compiles=False, trivial_by=None, stdout="", stderr="", duration_ms=100, timed_out=True)
+    return CheckResult(
+        compiles=False, trivial_by=None, stdout="", stderr="", duration_ms=100, timed_out=True
+    )
 
 
 @pytest.mark.asyncio
@@ -63,16 +81,19 @@ async def test_complete_proof_on_first_attempt_succeeds():
 
     assert result.proved is True
     assert result.attempts == 1
+    assert result.proof_code is not None
     assert "sorry" not in result.proof_code
     assert client.calls == 1
 
 
 @pytest.mark.asyncio
 async def test_cast_subtraction_defeq_error_triggers_a_targeted_hint():
-    client = ScriptedClaudeClient([
-        "```lean\ntheorem foo : 1 + 1 = 2 := by exact bad\n```",
-        "```lean\ntheorem foo : 1 + 1 = 2 := by norm_num\n```",
-    ])
+    client = ScriptedClaudeClient(
+        [
+            "```lean\ntheorem foo : 1 + 1 = 2 := by exact bad\n```",
+            "```lean\ntheorem foo : 1 + 1 = 2 := by norm_num\n```",
+        ]
+    )
     check_sequence = [_cast_subtraction_defeq_error(), _compiles()]
     with patch.object(prove_module, "check_proof", side_effect=check_sequence):
         result = await prove_with_retry(LEAN_CODE, client, Path("."), timeout_s=10, max_attempts=5)
@@ -85,10 +106,12 @@ async def test_cast_subtraction_defeq_error_triggers_a_targeted_hint():
 
 @pytest.mark.asyncio
 async def test_unrelated_compile_error_does_not_trigger_the_cast_hint():
-    client = ScriptedClaudeClient([
-        "```lean\ntheorem foo : Bogus := by exact bad_tactic\n```",
-        "```lean\ntheorem foo : 1 + 1 = 2 := by norm_num\n```",
-    ])
+    client = ScriptedClaudeClient(
+        [
+            "```lean\ntheorem foo : 1 + 1 = 2 := by exact bad_tactic\n```",
+            "```lean\ntheorem foo : 1 + 1 = 2 := by norm_num\n```",
+        ]
+    )
     check_sequence = [_malformed(), _compiles()]
     with patch.object(prove_module, "check_proof", side_effect=check_sequence):
         result = await prove_with_retry(LEAN_CODE, client, Path("."), timeout_s=10, max_attempts=5)
@@ -105,7 +128,9 @@ def test_known_formalization_gotchas_appear_in_prompt_and_retry():
     # gotcha, not a math error. Must be surfaced both proactively (first
     # attempt) and reactively (after a compile error, where it's most useful).
     formatted_main = PROVE_PROMPT.format(lean_code="x")
-    formatted_retry = RETRY_AFTER_ERROR_PROMPT.format(lean_code="x", previous_code="y", error_output="z")
+    formatted_retry = RETRY_AFTER_ERROR_PROMPT.format(
+        lean_code="x", previous_code="y", error_output="z"
+    )
     assert KNOWN_FORMALIZATION_GOTCHAS in formatted_main
     assert KNOWN_FORMALIZATION_GOTCHAS in formatted_retry
     assert "Nat.ModEq" in KNOWN_FORMALIZATION_GOTCHAS
@@ -130,10 +155,12 @@ async def test_lean4_fence_tag_is_recognized_same_as_lean():
 
 @pytest.mark.asyncio
 async def test_declines_then_succeeds_on_retry():
-    client = ScriptedClaudeClient([
-        "CANNOT_PROVE",
-        "```lean\ntheorem foo : 1 + 1 = 2 := by norm_num\n```",
-    ])
+    client = ScriptedClaudeClient(
+        [
+            "CANNOT_PROVE",
+            "```lean\ntheorem foo : 1 + 1 = 2 := by norm_num\n```",
+        ]
+    )
     with patch.object(prove_module, "check_proof", return_value=_compiles()):
         result = await prove_with_retry(LEAN_CODE, client, Path("."), timeout_s=10, max_attempts=5)
 
@@ -149,10 +176,12 @@ async def test_declines_then_succeeds_on_retry():
 
 @pytest.mark.asyncio
 async def test_compiles_but_still_has_sorry_is_not_a_proof_and_retries():
-    client = ScriptedClaudeClient([
-        "```lean\ntheorem foo : 1 + 1 = 2 := by sorry\n```",  # compiles, still incomplete
-        "```lean\ntheorem foo : 1 + 1 = 2 := by norm_num\n```",  # real proof
-    ])
+    client = ScriptedClaudeClient(
+        [
+            "```lean\ntheorem foo : 1 + 1 = 2 := by sorry\n```",  # compiles, still incomplete
+            "```lean\ntheorem foo : 1 + 1 = 2 := by norm_num\n```",  # real proof
+        ]
+    )
     with patch.object(prove_module, "check_proof", return_value=_compiles()):
         result = await prove_with_retry(LEAN_CODE, client, Path("."), timeout_s=10, max_attempts=5)
 
@@ -163,10 +192,12 @@ async def test_compiles_but_still_has_sorry_is_not_a_proof_and_retries():
 
 @pytest.mark.asyncio
 async def test_does_not_compile_then_fixed_with_error_feedback():
-    client = ScriptedClaudeClient([
-        "```lean\ntheorem foo : Bogus := by exact bad_tactic\n```",
-        "```lean\ntheorem foo : 1 + 1 = 2 := by norm_num\n```",
-    ])
+    client = ScriptedClaudeClient(
+        [
+            "```lean\ntheorem foo : 1 + 1 = 2 := by exact bad_tactic\n```",
+            "```lean\ntheorem foo : 1 + 1 = 2 := by norm_num\n```",
+        ]
+    )
     check_sequence = [_malformed(), _compiles()]
     with patch.object(prove_module, "check_proof", side_effect=check_sequence):
         result = await prove_with_retry(LEAN_CODE, client, Path("."), timeout_s=10, max_attempts=5)
@@ -177,9 +208,13 @@ async def test_does_not_compile_then_fixed_with_error_feedback():
 
 @pytest.mark.asyncio
 async def test_exhausts_max_attempts_never_proved():
-    client = ScriptedClaudeClient([
-        "```lean\nattempt 1\n```", "```lean\nattempt 2\n```", "```lean\nattempt 3\n```",
-    ])
+    client = ScriptedClaudeClient(
+        [
+            "```lean\nattempt 1\n```",
+            "```lean\nattempt 2\n```",
+            "```lean\nattempt 3\n```",
+        ]
+    )
     with patch.object(prove_module, "check_proof", return_value=_malformed()):
         result = await prove_with_retry(LEAN_CODE, client, Path("."), timeout_s=10, max_attempts=3)
 
@@ -190,11 +225,12 @@ async def test_exhausts_max_attempts_never_proved():
 
 @pytest.mark.asyncio
 async def test_timeout_stops_immediately_without_retrying():
-    client = ScriptedClaudeClient(["```lean\nslow attempt\n```"])
+    client = ScriptedClaudeClient(["```lean\ntheorem foo : 1 + 1 = 2 := by slow_tactic\n```"])
     with patch.object(prove_module, "check_proof", return_value=_timed_out()):
         result = await prove_with_retry(LEAN_CODE, client, Path("."), timeout_s=10, max_attempts=5)
 
     assert result.proved is False
+    assert result.check is not None
     assert result.check.timed_out is True
     assert client.calls == 1
 
@@ -211,5 +247,7 @@ async def test_missing_mathlib_import_in_proof_attempt_is_prepended():
     with patch.object(prove_module, "check_proof", return_value=_compiles()):
         result = await prove_with_retry(LEAN_CODE, client, Path("."), timeout_s=10, max_attempts=5)
 
+    assert result.proof_code is not None
     assert result.proof_code.startswith("import Mathlib")
+    assert result.proof_code is not None
     assert "theorem foo : 1 + 1 = 2 := by norm_num" in result.proof_code

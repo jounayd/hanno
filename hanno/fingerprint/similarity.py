@@ -1,4 +1,5 @@
 """Step 5 (implicit) + Step 6: collision classification (General-spec.txt:543-560)."""
+
 from __future__ import annotations
 
 import numpy as np

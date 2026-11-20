@@ -1,6 +1,7 @@
 """Executes one skill invocation: argv subprocess (never a shell), hard
 timeout, output truncation. The formatted result string is what the model
 sees as the tool_result."""
+
 from __future__ import annotations
 
 import subprocess
@@ -52,14 +53,19 @@ def run_skill(skill: SkillDefinition, input_text: str) -> SkillResult:
     except subprocess.TimeoutExpired:
         duration_ms = int((time.monotonic() - started) * 1000)
         return SkillResult(
-            stdout="", stderr=f"timed out after {skill.timeout_seconds}s",
-            exit_code=-1, duration_ms=duration_ms, timed_out=True,
+            stdout="",
+            stderr=f"timed out after {skill.timeout_seconds}s",
+            exit_code=-1,
+            duration_ms=duration_ms,
+            timed_out=True,
         )
     except (OSError, ValueError) as e:
         duration_ms = int((time.monotonic() - started) * 1000)
         return SkillResult(
-            stdout="", stderr=f"failed to execute: {e}",
-            exit_code=-1, duration_ms=duration_ms,
+            stdout="",
+            stderr=f"failed to execute: {e}",
+            exit_code=-1,
+            duration_ms=duration_ms,
         )
 
 

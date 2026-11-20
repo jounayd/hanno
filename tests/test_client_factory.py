@@ -1,6 +1,7 @@
 """build_client: the single place that maps config.excavator.provider to a
 concrete ModelClient. Hermetic -- constructs real client objects (their
 __init__ methods don't make network calls) without ever calling generate()."""
+
 import pytest
 
 from hanno.config import HannoConfig
@@ -17,6 +18,7 @@ def test_anthropic_provider_builds_anthropic_client():
     client = build_client(config, api_key="test-key")
 
     assert isinstance(client, AnthropicClient)
+    assert client._client.max_retries == 0
 
 
 def test_openai_compatible_provider_builds_openai_client():
@@ -54,6 +56,7 @@ def test_max_tokens_override_takes_precedence_over_config_default():
 
     client = build_client(config, api_key="test-key", max_tokens=1500)
 
+    assert isinstance(client, AnthropicClient)
     assert client._max_tokens == 1500
 
 
@@ -64,6 +67,7 @@ def test_max_tokens_defaults_to_config_when_not_overridden():
 
     client = build_client(config, api_key="test-key")
 
+    assert isinstance(client, AnthropicClient)
     assert client._max_tokens == 8000
 
 
@@ -74,6 +78,7 @@ def test_request_timeout_flows_to_anthropic_client():
 
     client = build_client(config, api_key="test-key")
 
+    assert isinstance(client, (AnthropicClient, OpenAICompatibleClient))
     assert client._client.timeout == 1800.0
 
 
@@ -85,6 +90,7 @@ def test_request_timeout_flows_to_openai_compatible_client():
 
     client = build_client(config, api_key=None)
 
+    assert isinstance(client, (AnthropicClient, OpenAICompatibleClient))
     assert client._client.timeout == 1800.0
 
 

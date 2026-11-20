@@ -3,6 +3,7 @@ cycles on the same seed, an arm that consistently produces higher path_score
 candidates should get selected more often in the second cycle than the
 others — this is the whole point of replacing round-robin with a UCB1
 bandit (arm_selection_strategy: ucb1, the default)."""
+
 import json
 
 import pytest
@@ -20,20 +21,22 @@ WINNING_VARIANT_HINT = "counterexample"  # substring unique to counterexample_co
 
 
 def _payload(core_claim: str, novelty: float, rigor: float) -> str:
-    return json.dumps({
-        "domain": "mathematics",
-        "core_claim": core_claim,
-        "formal_statement": "forall x, P(x)",
-        "intuition": "intuition text",
-        "connections": ["algebra"],
-        "self_assessed_novelty": "n/a",
-        "identified_weaknesses": "n/a",
-        "exploration_signal": "continue",
-        "suggested_seeds": [],
-        "self_rated_novelty": novelty,
-        "self_rated_rigor": rigor,
-        "claim_type": "structural",
-    })
+    return json.dumps(
+        {
+            "domain": "mathematics",
+            "core_claim": core_claim,
+            "formal_statement": "forall x, P(x)",
+            "intuition": "intuition text",
+            "connections": ["algebra"],
+            "self_assessed_novelty": "n/a",
+            "identified_weaknesses": "n/a",
+            "exploration_signal": "continue",
+            "suggested_seeds": [],
+            "self_rated_novelty": novelty,
+            "self_rated_rigor": rigor,
+            "claim_type": "structural",
+        }
+    )
 
 
 class ArmAwareFakeClient:
@@ -44,8 +47,13 @@ class ArmAwareFakeClient:
         self.calls = 0
 
     async def generate(
-        self, prompt: str, temperature: float,
-        max_tokens=None, thinking_budget_tokens=None, cache_prefix=None,
+        self,
+        prompt: str,
+        temperature: float,
+        max_tokens=None,
+        thinking_budget_tokens=None,
+        cache_prefix=None,
+        **kwargs,
     ) -> GenerationResult:
         self.calls += 1
         is_winner = temperature == WINNING_TEMP and WINNING_VARIANT_HINT in prompt.lower()
@@ -63,10 +71,10 @@ class ArmAwareFakeClient:
 
 @pytest.fixture
 def ledger(tmp_path):
-    l = Ledger.connect(tmp_path / "test.db")
-    l.init_schema()
-    yield l
-    l.close()
+    db = Ledger.connect(tmp_path / "test.db")
+    db.init_schema()
+    yield db
+    db.close()
 
 
 @pytest.fixture
@@ -77,7 +85,8 @@ def fingerprint_engine(ledger):
 
 def _winner_count(plan_candidates: list[dict]) -> int:
     return sum(
-        1 for c in plan_candidates
+        1
+        for c in plan_candidates
         if c["temperature"] == WINNING_TEMP and c["prompt_variant"] == "counterexample_construction"
     )
 
@@ -89,7 +98,11 @@ async def test_bandit_favors_the_higher_scoring_arm_in_the_next_cycle(ledger, fi
     config.excavator.temperatures = [0.3, 0.7]
     config.excavator.reasoning_efforts = ["standard"]  # keep the arm space small and fast
 
-    seed = Seed(text="a seed about additive number theory and unit fractions", domain="mathematics", type="human")
+    seed = Seed(
+        text="a seed about additive number theory and unit fractions",
+        domain="mathematics",
+        type="human",
+    )
     ledger.insert_seed(seed)
 
     client = ArmAwareFakeClient()
@@ -100,7 +113,8 @@ async def test_bandit_favors_the_higher_scoring_arm_in_the_next_cycle(ledger, fi
 
     arm_stats = ledger.get_arm_stats("mathematics")
     winner_stats = next(
-        s for s in arm_stats
+        s
+        for s in arm_stats
         if s["temperature"] == WINNING_TEMP and s["prompt_variant"] == "counterexample_construction"
     )
     assert winner_stats["avg_score"] > 0.9
@@ -109,7 +123,7 @@ async def test_bandit_favors_the_higher_scoring_arm_in_the_next_cycle(ledger, fi
 
     # Cycle 2: every arm now has equal history (1 pull each) except in average
     # score, which is where the winner should now visibly pull ahead.
-    result2 = await pipeline.run_cycle(seed_id=seed.id, seed_text=seed.text, n_candidates=16)
+    await pipeline.run_cycle(seed_id=seed.id, seed_text=seed.text, n_candidates=16)
     candidates_cycle2 = ledger.list_candidates_by_seed(seed.id)[16:]
     assert len(candidates_cycle2) == 16
 
@@ -119,7 +133,11 @@ async def test_bandit_favors_the_higher_scoring_arm_in_the_next_cycle(ledger, fi
         key = (c["temperature"], c["prompt_variant"])
         other_arm_pick_counts[key] = other_arm_pick_counts.get(key, 0) + 1
     max_other_picks = max(
-        (v for k, v in other_arm_pick_counts.items() if k != (WINNING_TEMP, "counterexample_construction")),
+        (
+            v
+            for k, v in other_arm_pick_counts.items()
+            if k != (WINNING_TEMP, "counterexample_construction")
+        ),
         default=0,
     )
 

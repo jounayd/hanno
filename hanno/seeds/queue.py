@@ -8,14 +8,15 @@ because cross-domain exploration is where the most surprising discoveries
 are found). Cartographer signal (Step 11) is not implemented yet —
 placeholder weight of 0.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-RECENCY_BOOST = 0.3          # applied to seeds with no fertility data yet
-RECENCY_WINDOW_HOURS = 72    # boost decays to 0 after this many hours
+RECENCY_BOOST = 0.3  # applied to seeds with no fertility data yet
+RECENCY_WINDOW_HOURS = 72  # boost decays to 0 after this many hours
 DOMAIN_BALANCE_WEIGHT = 0.2
-CROSS_DOMAIN_BONUS = 0.15    # General-spec.txt:354-356
+CROSS_DOMAIN_BONUS = 0.15  # General-spec.txt:354-356
 
 
 def _recency_score(submitted_at: str) -> float:
@@ -24,8 +25,8 @@ def _recency_score(submitted_at: str) -> float:
     except ValueError:
         return 0.0
     if submitted.tzinfo is None:
-        submitted = submitted.replace(tzinfo=timezone.utc)
-    age_hours = (datetime.now(timezone.utc) - submitted).total_seconds() / 3600
+        submitted = submitted.replace(tzinfo=UTC)
+    age_hours = (datetime.now(UTC) - submitted).total_seconds() / 3600
     if age_hours >= RECENCY_WINDOW_HOURS:
         return 0.0
     return RECENCY_BOOST * (1 - age_hours / RECENCY_WINDOW_HOURS)
@@ -65,7 +66,7 @@ def order_queue(seeds: list[dict]) -> list[dict]:
         if s["status"] in ("queued", "active"):
             active_domain_counts[s["domain"]] = active_domain_counts.get(s["domain"], 0) + 1
 
-    def sort_key(seed: dict):
+    def sort_key(seed: dict) -> tuple[bool, float]:
         eligible = seed["status"] in ("queued", "active")
         priority = compute_priority(seed, active_domain_counts) if eligible else float("-inf")
         return (not eligible, -priority)

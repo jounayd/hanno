@@ -2,6 +2,7 @@
 to the model and the raw result it returned, in order, for both human and
 AI-generated/derivative seeds. This is the review surface for "how the
 Excavator is trying to find a discovery" — nothing here is summarized away."""
+
 from __future__ import annotations
 
 import json as json_module
@@ -10,6 +11,7 @@ import typer
 
 from hanno.cli.context import build_context
 from hanno.ledger.export import build_trace_export
+from hanno.ledger.repository import Ledger
 
 TRUNCATE_CHARS = 400
 
@@ -33,7 +35,9 @@ def _walk_lineage(all_by_id: dict[str, dict], candidate_id: str) -> list[dict]:
     return list(reversed(chain))
 
 
-def _write_mindmap_json(path: str, seed_row: dict, status: str, candidates: list[dict], ledger) -> None:
+def _write_mindmap_json(
+    path: str, seed_row: dict, status: str, candidates: list[dict], ledger: Ledger
+) -> None:
     payload = build_trace_export(seed_row, status, candidates, ledger)
     with open(path, "w") as f:
         json_module.dump(payload, f, indent=2, default=str)
@@ -44,16 +48,18 @@ def trace(
     full: bool = typer.Option(False, "--full", help="Show untruncated prompt/response text."),
     limit: int = typer.Option(None, "--limit", help="Show only the first N candidates."),
     lineage: str = typer.Option(
-        None, "--lineage",
+        None,
+        "--lineage",
         help="Show only one candidate's refinement chain (iterative mining, --depth > 1): "
-             "walks refined_from_candidate_id back to the original iteration.",
+        "walks refined_from_candidate_id back to the original iteration.",
     ),
     json_path: str = typer.Option(
-        None, "--json",
+        None,
+        "--json",
         help="Write the trace as JSON to this path instead of printing it "
-             "(for hanno/viz/trace_mindmap.html) — includes the full seed and every candidate.",
+        "(for hanno/viz/trace_mindmap.html) — includes the full seed and every candidate.",
     ),
-):
+) -> None:
     ctx = build_context()
     seed_row = ctx.ledger.get_seed(seed_id)
     if seed_row is None:
@@ -64,11 +70,17 @@ def trace(
     all_candidates = ctx.ledger.list_candidates_by_seed(seed_id)
 
     if json_path:
-        _write_mindmap_json(json_path, seed_row, status, all_candidates, ctx.ledger)
-        typer.secho(f"OK: wrote {len(all_candidates)} candidate(s) to {json_path}", fg=typer.colors.GREEN)
+        _write_mindmap_json(json_path, dict(seed_row), status, all_candidates, ctx.ledger)
+        typer.secho(
+            f"OK: wrote {len(all_candidates)} candidate(s) to {json_path}", fg=typer.colors.GREEN
+        )
         return
 
-    typer.secho(f"SEED {seed_row['id']}  [{seed_row['type']}, {seed_row['domain']}, {status}]", fg=typer.colors.GREEN, bold=True)
+    typer.secho(
+        f"SEED {seed_row['id']}  [{seed_row['type']}, {seed_row['domain']}, {status}]",
+        fg=typer.colors.GREEN,
+        bold=True,
+    )
     typer.echo(f"submitted_at={seed_row['submitted_at']} submitter={seed_row['submitter_id']}")
     typer.echo(f"text: {seed_row['text']}")
     typer.echo("")
@@ -114,7 +126,8 @@ def trace(
         if invocations:
             summary = ", ".join(
                 f"{inv['skill_name']}(exit={inv['exit_code']}"
-                + (", TIMEOUT" if inv["timed_out"] else "") + ")"
+                + (", TIMEOUT" if inv["timed_out"] else "")
+                + ")"
                 for inv in invocations
             )
             typer.secho(f"tool_calls [{len(invocations)}]: {summary}", fg=typer.colors.MAGENTA)

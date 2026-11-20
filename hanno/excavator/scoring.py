@@ -4,6 +4,7 @@ verification (Sieve/Lean, later steps) — a cheap proxy so the Excavator can
 learn which (model, temperature, prompt_variant, reasoning_effort) 'arms'
 are actually producing good candidates, versus which are dead weight.
 """
+
 from __future__ import annotations
 
 NEAR_DUPLICATE_MULTIPLIER = 0.3
