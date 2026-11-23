@@ -20,6 +20,19 @@ uses its native PyPI wheels. See [uv's PyTorch guide](https://docs.astral.sh/uv/
 | `uv run poe check` | Format check, lint, type check, and all available tests |
 | `uv run poe format` | Format Python sources with Ruff |
 | `uv run poe format:check` | Check formatting without changing files |
+
+## Continuous integration
+
+GitHub Actions runs the locked checks on every push and pull request
+(`.github/workflows/ci.yml`):
+
+- `check` runs `uv sync --locked` and `uv run poe check:fast` on Python 3.11 and 3.12.
+- `embeddings` runs the embedding integration tests (`pytest -m embeddings`).
+- `lean` installs the pinned Lean/Mathlib project (`poe lean:setup`) and runs `poe lean:check`.
+- `package` builds the wheel and smoke-tests it outside the checkout (`scripts/check_package.py`).
+
+Actions runs: https://github.com/jounayd/hanno/actions/workflows/ci.yml
+
 | `uv run poe lint` | Run static lint checks |
 | `uv run poe lint:fix` | Apply safe Ruff fixes |
 | `uv run poe typecheck` | Run Pyright, also configured for Pylance |
